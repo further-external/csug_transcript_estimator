@@ -1,5 +1,6 @@
+# processors.py
+from typing import List, Optional
 import time
-from typing import List
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from .models import TranscriptData, CombinedTranscriptData
@@ -11,90 +12,134 @@ def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -
     all_results = []
     
     for pdf_file in pdf_files:
-        with st.spinner(f"Processing {pdf_file.name}..."):
-            try:
-                pdf_content = pdf_file.read()
-                result = client.process_transcript(pdf_content, pdf_file.name)
-                if result:
-                    parsed_data = parse_transcript_data(result)
-                    if parsed_data:
-                        parsed_data['source_file'] = pdf_file.name
-                        all_results.append(parsed_data)
-                    else:
-                        st.warning(f"Could not parse data from {pdf_file.name}")
-                else:
-                    st.warning(f"Failed to process {pdf_file.name}")
-                pdf_file.seek(0)
-                time.sleep(0.5)
-            except Exception as e:
-                st.error(f"Error processing {pdf_file.name}: {str(e)}")
+        result = process_single_pdf(client, pdf_file)
+        if result:
+            all_results.append(result)
     
     return all_results
 
+def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional[TranscriptData]:
+    """Process a single PDF transcript"""
+    with st.spinner(f"Processing {pdf_file.name}..."):
+        try:
+            # Extract main transcript data
+            pdf_content = pdf_file.read()
+            result = client.process_transcript(pdf_content, pdf_file.name)
+            
+            if not result:
+                st.warning(f"Failed to process {pdf_file.name}")
+                return None
+                
+            parsed_data = parse_transcript_data(result)
+            if not parsed_data:
+                st.warning(f"Could not parse data from {pdf_file.name}")
+                return None
+                
+            parsed_data['source_file'] = pdf_file.name
+            institution_name = parsed_data.get('institution_info', {}).get('name')
+            
+            if institution_name:
+                # Extract transcript key
+                pdf_file.seek(0)
+                key_data = client.extract_transcript_key(
+                    pdf_content=pdf_file.read(),
+                    filename=pdf_file.name,
+                    institution_name=institution_name
+                )
+                
+                if key_data:
+                    parsed_data['transcript_key'] = key_data
+            
+            time.sleep(0.5)
+            return parsed_data
+            
+        except Exception as e:
+            st.error(f"Error processing {pdf_file.name}: {str(e)}")
+            return None
 
-def combine_transcript_data(all_results: List[TranscriptData]) -> CombinedTranscriptData:
-    """Combine data from multiple transcripts with corrected field mapping"""
+def combine_transcript_data(all_results: List[TranscriptData]) -> Optional[CombinedTranscriptData]:
+    """Combine data from multiple transcripts"""
     if not all_results:
         return None
         
-    # Debug the incoming data
-    with st.expander("Combine Process Details"):
-        st.write(f"Number of transcripts: {len(all_results)}")
-        for idx, result in enumerate(all_results):
-            st.write(f"Transcript {idx + 1} courses: {len(result.get('courses', []))}")
-    
     combined_data = {
         "student_info": all_results[0].get("student_info", {}),
         "institutions": [],
         "courses": [],
+        "transcript_keys": [],
         "total_credits": 0,
         "total_transfer_credits": 0
     }
     
     seen_courses = set()
+    seen_institutions = set()
     
-
     for result in all_results:
         institution = result.get("institution_info", {})
-        institution["source_file"] = result.get("source_file", "Unknown")
-        if institution not in combined_data["institutions"]:
-            combined_data["institutions"].append(institution)
+        institution_name = institution.get("name")
         
-        for course in result.get("courses", []):
-            course_key = f"{course.get('course_code', '')}_{course.get('term', '')}_{course.get('year', '')}"
+        if institution_name and institution_name not in seen_institutions:
+            add_institution_data(
+                combined_data, 
+                institution, 
+                institution_name, 
+                result.get("transcript_key"),
+                seen_institutions
+            )
             
-            if (course_key not in seen_courses and 
-                course.get('course_code') and 
-                course.get('course_name')):
-                
-                seen_courses.add(course_key)
-                
-                course_entry = {
-                    "course_code": course.get("course_code", ""),
-                    "course_name": course.get("course_name", ""),
-                    "credits": float(str(course.get("credits", "0")).replace(",", "").split()[0]),
-                    "grade": course.get("grade", ""),
-                    "term": course.get("term", ""),
-                    "year": course.get("year", ""),
-                    "is_transfer": course.get("is_transfer", False),
-                    "source_institution": institution.get("name", "Unknown"),
-                    "source_file": result.get("source_file", "Unknown")
-                }
-                
-                combined_data["courses"].append(course_entry)
-                
-                try:
-                    credits = float(str(course.get("credits", "0")).replace(",", "").split()[0])
-                    combined_data["total_credits"] += credits
-                    if course.get("is_transfer", False):
-                        combined_data["total_transfer_credits"] += credits
-                except ValueError:
-                    st.warning(f"Could not parse credits for course: {course.get('course_code', 'Unknown')}")
-    
-    # Debug the final combined data
-    with st.expander("Combined Data Summary"):
-        st.write(f"Total courses combined: {len(combined_data['courses'])}")
-        st.write(f"Total credits: {combined_data['total_credits']}")
-        
+        add_course_data(
+            combined_data,
+            result.get("courses", []),
+            institution_name,
+            result.get("source_file", "Unknown"),
+            seen_courses
+        )
     
     return combined_data
+
+def add_institution_data(combined_data: dict, institution: dict, 
+                        institution_name: str, transcript_key: dict, 
+                        seen_institutions: set):
+    """Add institution and transcript key data to combined results"""
+    seen_institutions.add(institution_name)
+    combined_data["institutions"].append(institution)
+    
+    if transcript_key:
+        if institution_name != transcript_key.get("source_institution"):
+            transcript_key["source_institution"] = institution_name
+        combined_data["transcript_keys"].append(transcript_key)
+
+def add_course_data(combined_data: dict, courses: list, 
+                    institution_name: str, source_file: str,
+                    seen_courses: set):
+    """Add course data to combined results"""
+    for course in courses:
+        course_key = f"{course.get('course_code', '')}_{course.get('term', '')}_{course.get('year', '')}"
+        
+        if (course_key not in seen_courses and 
+            course.get('course_code') and 
+            course.get('course_name')):
+            
+            seen_courses.add(course_key)
+            
+            course_entry = {
+                "course_code": course.get("course_code", ""),
+                "course_name": course.get("course_name", ""),
+                "credits": float(str(course.get("credits", "0")).replace(",", "").split()[0]),
+                "grade": course.get("grade", ""),
+                "term": course.get("term", ""),
+                "year": course.get("year", ""),
+                "is_transfer": course.get("is_transfer", False),
+                "source_institution": institution_name,
+                "source_file": source_file
+            }
+            
+            combined_data["courses"].append(course_entry)
+            
+            try:
+                credits = float(str(course.get("credits", "0")).replace(",", "").split()[0])
+                combined_data["total_credits"] += credits
+                if course.get("is_transfer", False):
+                    combined_data["total_transfer_credits"] += credits
+            except ValueError:
+                st.warning(f"Could not parse credits for course: {course.get('course_code', 'Unknown')}")
