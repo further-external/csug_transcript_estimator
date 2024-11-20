@@ -5,10 +5,10 @@ from typing import Dict, List
 from .models import CombinedTranscriptData, TranscriptKeyData
 
 def display_evaluation_results(evaluation_results: Dict):
-    """Display transfer credit evaluation results"""
+    """Display transfer credit evaluation results with enhanced rejection details"""
     st.header("Transfer Credit Evaluation Results")
     
-    # Summary metrics
+    # Summary metrics [Previous code remains unchanged]
     summary = evaluation_results.get('summary', {})
     col1, col2, col3 = st.columns(3)
     
@@ -16,23 +16,11 @@ def display_evaluation_results(evaluation_results: Dict):
     total_accepted = summary.get('total_credits_accepted', 0)
     
     with col1:
-        st.metric(
-            "Total Credits Attempted", 
-            f"{total_attempted:.1f}"
-        )
-        
+        st.metric("Total Credits Attempted", f"{total_attempted:.1f}")
     with col2:
-        st.metric(
-            "Total Credits Accepted", 
-            f"{total_accepted:.1f}"
-        )
-        
+        st.metric("Total Credits Accepted", f"{total_accepted:.1f}")
     with col3:
-        # Calculate acceptance rate with zero division handling
-        if total_attempted > 0:
-            acceptance_rate = (total_accepted / total_attempted) * 100
-        else:
-            acceptance_rate = 0.0
+        acceptance_rate = (total_accepted / total_attempted * 100) if total_attempted > 0 else 0.0
         st.metric("Credit Acceptance Rate", f"{acceptance_rate:.1f}%")
 
     # Display evaluated courses
@@ -40,18 +28,13 @@ def display_evaluation_results(evaluation_results: Dict):
         st.subheader("Evaluated Courses")
         df = pd.DataFrame(evaluation_results['evaluated_courses'])
         
-        # Calculate transfer status label
+        # Calculate transfer status with detailed labels
         df['status'] = df.apply(
             lambda x: '✅ Accepted' if x['transferable'] 
-            else '❌ Rejected', axis=1
+            else f'❌ Rejected ({len(x["rejection_reasons"])} issues)',
+            axis=1
         )
         
-        # Format rejection reasons
-        df['rejection_reasons'] = df['rejection_reasons'].apply(
-            lambda x: '\n'.join(x) if x else ''
-        )
-        
-        # Display as an editable dataframe
         st.dataframe(
             df[[
                 'course_code', 'course_name', 'credits', 
@@ -81,23 +64,81 @@ def display_evaluation_results(evaluation_results: Dict):
                     width='medium'
                 ),
                 'rejection_reasons': st.column_config.TextColumn(
-                    'Rejection Reasons',
+                    'Issues',
                     width='large'
                 )
             }
         )
 
-    # Display rejected courses
+    # Enhanced rejected courses display
     rejected_courses = summary.get('rejected_courses', [])
     if rejected_courses:
         st.subheader("Rejected Courses Details")
+        
+        # Create detailed explanation mapping
+        reason_explanations = {
+            'Grade below minimum requirement': """
+                The course grade does not meet the minimum requirements:
+                - Undergraduate: C- or better
+                - Graduate: B- or better
+                Transfer credits must demonstrate sufficient mastery of the subject matter.
+            """,
+            'Credits exceed age limit': """
+                The course was completed outside the acceptable timeframe:
+                - Graduate: Must be within last 10 years
+                - Undergraduate: No standard expiration
+                This ensures knowledge is current and relevant.
+            """,
+            'Non-standard grade': """
+                The grade format is not recognized or cannot be evaluated:
+                - Standard letter grades (A through F)
+                - Pass/Fail grades may have special requirements
+                Clear grade documentation is required for evaluation.
+            """
+        }
+        
         for course in rejected_courses:
             with st.expander(f"{course['course_code']} - {course['course_name']}"):
                 for reason in course.get('reasons', []):
-                    st.write(f"- {reason}")
+                    st.markdown(f"**Issue:** {reason}")
+                    if explanation := reason_explanations.get(reason):
+                        st.markdown("**Explanation:**")
+                        st.markdown(explanation.strip())
+                    st.markdown("---")
+                
+                st.info("""
+                    To appeal this decision:
+                    1. Submit additional documentation
+                    2. Provide course syllabus
+                    3. Request grade clarification
+                    4. Demonstrate course equivalency
+                """)
     else:
         st.success("No rejected courses found!")
 
+def validate_course(course):
+    """Validate course data and return any issues"""
+    notes = []
+    
+    # Check required fields
+    if not course.get('course_code'): notes.append("Missing code")
+    if not course.get('course_name'): notes.append("Missing name")
+    if not course.get('credits'): notes.append("Missing credits")
+    if not course.get('year'): notes.append("Missing Year")
+    if not course.get('grade'): notes.append("Missing grade")
+    if not course.get('source_institution'): notes.append("Missing institution")
+    
+    # Check data quality
+    credits = course.get('credits', 0)
+    if credits and (credits < 0 or credits > 12):
+        notes.append("Unusual credits")
+    
+    valid_grades = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", 
+                   "D+", "D", "D-", "F", "P", "NP", "W", "I"]
+    if course.get('grade') and course['grade'] not in valid_grades:
+        notes.append("Non-standard grade")
+        
+    return ", ".join(notes) if notes else "✓"
 
 def display_combined_results(data: Dict):
     """Display combined results with evaluation"""
@@ -126,6 +167,7 @@ def display_combined_results(data: Dict):
             st.header("All Courses")
             if data.get("courses"):
                 courses_df = pd.DataFrame(data["courses"])
+                courses_df['notes'] = courses_df.apply(validate_course, axis=1)
                 
                 # Define grade options
                 grade_options = [
@@ -192,9 +234,17 @@ def display_combined_results(data: Dict):
                             help="Original transcript file",
                             required=False,
                         ),
+                        "notes": st.column_config.TextColumn(
+                            "Validation Notes",
+                            help="Data quality issues",
+                            required=False,
+                        ),
                     },
                     hide_index=True,
                 )
+                issues = edited_df[edited_df['notes'] != "✓"]
+                if not issues.empty:
+                    st.warning(f"Found {len(issues)} courses with data quality issues")
                 
         with tabs[1]:
             # Display transcript key information
