@@ -172,7 +172,7 @@ def display_combined_results(data: Dict):
                 # Define grade options
                 grade_options = [
                     "A", "A-", "B+", "B", "B-", "C+", "C", "C-", 
-                    "D+", "D", "D-", "F", "P", "NP", "W", "I"
+                    "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
                 ]
                 
                 # Define term options

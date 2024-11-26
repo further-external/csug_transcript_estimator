@@ -114,16 +114,15 @@ def add_course_data(combined_data: dict, courses: list,
                     seen_courses: set):
     """Add course data to combined results"""
     for course in courses:
-        course_key = f"{course.get('course_code', '')}_{course.get('term', '')}_{course.get('year', '')}"
+        course_key = f"{course.get('course_name', '')}_{course.get('grade', '')}_{course.get('year', '')}"
         
         if (course_key not in seen_courses and 
-            course.get('course_code') and 
             course.get('course_name')):
             
             seen_courses.add(course_key)
             
             course_entry = {
-                "course_code": course.get("course_code", ""),
+                "course_code": course.get("course_code", "N/A"),
                 "course_name": course.get("course_name", ""),
                 "credits": float(str(course.get("credits", "0")).replace(",", "").split()[0]),
                 "grade": course.get("grade", ""),

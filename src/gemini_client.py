@@ -27,7 +27,10 @@ class GeminiClient:
         """Process PDF with Gemini Vision API"""
         try:
             prompt = """
-            Extract ALL information from this transcript and format it EXACTLY as shown below:
+            Extract ALL information from this transcript.
+            If it's examination like AP, make sure you to include exam name, grade and year taken  in the `Course Information` section.
+            
+            Format it EXACTLY as shown below:
 
             Student Information:
             Name: [student name]
@@ -47,6 +50,8 @@ class GeminiClient:
             Term: [term if available]
             Year: [year if available]
             [blank line between each course]
+
+    
             """
             
             response = self.vision_model.generate_content(
