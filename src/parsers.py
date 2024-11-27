@@ -11,9 +11,6 @@ def parse_transcript_data(text: str) -> TranscriptData:
             "courses": [],
             "source_file": ""
         }
-        
-        with st.expander("Processing Details"):
-            st.text(text)
 
         sections = text.split('\n\n')
         in_course_section = False
@@ -58,8 +55,8 @@ def parse_transcript_data(text: str) -> TranscriptData:
                     current_course.setdefault("grade", "")
                     current_course.setdefault("term", "")
                     current_course.setdefault("year", "")
-                    current_course["is_transfer"] = any(indicator in str(current_course).lower() 
-                                                      for indicator in ["transfer", "tr ", "* ", "†"])
+                    current_course.setdefault("is_transfer", "")
+                    current_course.setdefault("transfer_details", "")
                     data["courses"].append(current_course.copy())
                     current_course = {}
                 
@@ -80,7 +77,9 @@ def parse_transcript_data(text: str) -> TranscriptData:
                     "grade": "grade",
                     "term": "term",
                     "year": "year",
-                    "semester": "term"
+                    "semester": "term",
+                    "is_transfer": "is_transfer",
+                    "transfer details": "transfer_details"
                 }
                 
                 mapped_key = next((mapped for original, mapped in key_mapping.items() 
@@ -102,8 +101,8 @@ def parse_transcript_data(text: str) -> TranscriptData:
             current_course.setdefault("grade", "")
             current_course.setdefault("term", "")
             current_course.setdefault("year", "")
-            current_course["is_transfer"] = any(indicator in str(current_course).lower() 
-                                              for indicator in ["transfer", "tr ", "* ", "†"])
+            current_course.setdefault("is_transfer", "")
+            current_course.setdefault("transfer_details", "")
             data["courses"].append(current_course.copy())
 
         return data

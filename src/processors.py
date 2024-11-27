@@ -118,9 +118,8 @@ def add_course_data(combined_data: dict, courses: list,
         
         if (course_key not in seen_courses and 
             course.get('course_name')):
-            
+            course["is_transfer"] = course["is_transfer"] == "True"
             seen_courses.add(course_key)
-            
             course_entry = {
                 "course_code": course.get("course_code", "N/A"),
                 "course_name": course.get("course_name", ""),
@@ -129,9 +128,11 @@ def add_course_data(combined_data: dict, courses: list,
                 "term": course.get("term", ""),
                 "year": course.get("year", ""),
                 "is_transfer": course.get("is_transfer", False),
+                "transfer_details": course.get("transfer_details",""),
                 "source_institution": institution_name,
                 "source_file": source_file
             }
+            print(course_entry)
             
             combined_data["courses"].append(course_entry)
             

@@ -30,6 +30,13 @@ class GeminiClient:
             Extract ALL information from this transcript.
             If it's examination like AP, make sure you to include exam name, grade and year taken  in the `Course Information` section.
             
+            For transfer credits:
+            - Look for explicit mentions of "transfer", "transferred from", or similar phrases
+            - Check for course codes or prefixes from other institutions
+            - Look for any indicators in the transcript key that denote transfer credits
+            - Pay attention to different institution names listed with courses
+            
+            
             Format it EXACTLY as shown below:
 
             Student Information:
@@ -49,6 +56,14 @@ class GeminiClient:
             Grade: [grade]
             Term: [term if available]
             Year: [year if available]
+            Is Transfer: [Write True ONLY if ANY of these conditions are met:
+                         1. Course is explicitly marked as transferred
+                         2. Course is from a different institution
+                         3. Course has transfer credit indicators
+                         4. Course appears in a transfer credit section
+                         Otherwise, write False]
+            Transfer Details: [transfer_details If Is Transfer is "Yes", include the source institution or program (e.g., "Transferred from XYZ College", "AP Credit"). Leave empty if not a transfer]
+            [blank line between each course]
             [blank line between each course]
 
     

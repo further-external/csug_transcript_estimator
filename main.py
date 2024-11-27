@@ -5,6 +5,11 @@ from src.processors import process_multiple_pdfs, combine_transcript_data
 from src.display import display_combined_results, display_evaluation_results
 from src.evaluator import create_evaluator
 
+st.set_page_config(
+    page_title="Transcript Analyzer",
+    layout="wide",
+    )
+
 def render_upload_tab(client):
     """Render the Upload & Process tab content"""
     st.header("Upload & Process Transcripts")
@@ -29,9 +34,9 @@ def render_upload_tab(client):
                         if results:
                             st.session_state.processed_data = results
                             st.success(f"Successfully processed {len(results)} transcripts")
+                            print(results)
                             
                             combined_data = combine_transcript_data(results)
-                            print(combined_data)
                             if combined_data:
                                 st.session_state.combined_data = combined_data
                                 st.success("Data combination complete!")

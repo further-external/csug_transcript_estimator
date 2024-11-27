@@ -220,9 +220,13 @@ def display_combined_results(data: Dict):
                             required=False,
                         ),
                         "is_transfer": st.column_config.CheckboxColumn(
-                            "Transfer",
+                            "Is Transfer",
                             help="Is this a transfer course?",
                             default=False,
+                        ),
+                         "transfer_details": st.column_config.TextColumn(
+                            "Transfer Details",
+                            help="Transfer Details",
                         ),
                         "source_institution": st.column_config.TextColumn(
                             "Institution",

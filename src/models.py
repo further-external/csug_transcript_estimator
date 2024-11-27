@@ -40,6 +40,7 @@ class CourseData(TypedDict):
     term: str
     year: str
     is_transfer: bool
+    transfer_details : str
     source_institution: str
     source_file: str
 

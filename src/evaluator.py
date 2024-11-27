@@ -92,7 +92,6 @@ class TransferCreditEvaluator:
     def evaluate_course(self, course: Dict) -> Dict:
         """Evaluate a single course for transfer eligibility"""
         course_date = self._parse_term_date(course.get('term'), course.get('year'))
-        
         evaluation = {
             'course_code': course.get('course_code'),
             'course_name': course.get('course_name'),
