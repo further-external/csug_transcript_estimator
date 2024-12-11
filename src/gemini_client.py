@@ -18,7 +18,7 @@ class GeminiClient:
             genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
             self.text_model = genai.GenerativeModel('gemini-1.5-pro')
             generation_config= genai.GenerationConfig(temperature=2)
-            self.vision_model = genai.GenerativeModel('gemini-1.5-flash-002', generation_config=generation_config)
+            self.vision_model = genai.GenerativeModel('gemini-1.5-pro', generation_config=generation_config)
             return True
         except Exception as e:
             st.error(f"Error initializing Gemini: {str(e)}")
@@ -51,11 +51,7 @@ class GeminiClient:
             - Look for special grades (P/Pass, CR/Credit, W/Withdrawn)
             - Check for grades both after course details and in separate columns
             - Grade may appear after course name or on a separate line. Make sure you read the grade completely and correctly.
-            For each grade you extract:
-                1. Double check the grade multiple times
-                2. Compare with any grade point calculations or summaries if available
-                3. Verify the grade matches any GPA calculations provided
-                4. If there's any uncertainty due to watermarks or unclear text, note it explicitly
+
 
             For Year:
             - Look for the year the course was taken
