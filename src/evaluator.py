@@ -43,13 +43,13 @@ class TransferCreditEvaluator:
             year = int(year)
             term = term.lower()
             
-            if term == 'fall':
+            if term == 'Fall':
                 return datetime(year, 12, 15)
-            elif term == 'spring':
+            elif term == 'Spring':
                 return datetime(year, 5, 15)
-            elif term == 'summer':
+            elif term == 'Summer':
                 return datetime(year, 8, 15)
-            elif term == 'winter':
+            elif term == 'Winter':
                 return datetime(year, 3, 15)
         except ValueError:
             return None

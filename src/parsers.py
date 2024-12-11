@@ -10,7 +10,7 @@ def parse_transcript_data(text: str) -> TranscriptData:
             "institution_info": {},
             "courses": [],
             "source_file": ""
-        }
+        } 
 
         sections = text.split('\n\n')
         in_course_section = False
@@ -44,24 +44,18 @@ def parse_transcript_data(text: str) -> TranscriptData:
             elif in_course_section:
                 course_lines.extend(lines)
 
-        for line in course_lines:
+        for i, line in enumerate(course_lines):
             line = line.strip()
             
-            if (not line) or (current_course and any(indicator in line.lower() for indicator in ["course code:", "course number:", "title:", "course name:"])):
-                if current_course:
-                    current_course.setdefault("course_code", "")
-                    current_course.setdefault("course_name", "")
-                    current_course.setdefault("credits", 0)
-                    current_course.setdefault("grade", "")
-                    current_course.setdefault("term", "")
-                    current_course.setdefault("year", "")
-                    current_course.setdefault("is_transfer", "")
-                    current_course.setdefault("transfer_details", "")
-                    data["courses"].append(current_course.copy())
-                    current_course = {}
-                
-                if not line:
-                    continue
+            # Handle course code and name when they appear on separate lines
+            if line and not ":" in line and not current_course:
+                current_course = {"course_code": line}
+                # Check next line for course name if available
+                if i + 1 < len(course_lines):
+                    next_line = course_lines[i + 1].strip()
+                    if not ":" in next_line:
+                        current_course["course_name"] = next_line
+                continue
             
             if ":" in line:
                 key, value = [x.strip() for x in line.split(":", 1)]
@@ -92,8 +86,31 @@ def parse_transcript_data(text: str) -> TranscriptData:
                     except ValueError:
                         value = 0
                 
+                # Start new course entry if we hit another course code/name
+                if mapped_key in ["course_code", "course_name"] and current_course.get(mapped_key):
+                    current_course.setdefault("course_code", "")
+                    current_course.setdefault("course_name", "")
+                    current_course.setdefault("credits", 0)
+                    current_course.setdefault("grade", "")
+                    current_course.setdefault("term", "")
+                    current_course.setdefault("year", "")
+                    current_course.setdefault("is_transfer", "")
+                    current_course.setdefault("transfer_details", "")
+                    data["courses"].append(current_course.copy())
+                    current_course = {}
+                
                 current_course[mapped_key] = value
 
+                # If we've collected all course details, save the course
+                if all(k in current_course for k in ["course_code", "course_name", "credits", "grade"]):
+                    current_course.setdefault("term", "")
+                    current_course.setdefault("year", "")
+                    current_course.setdefault("is_transfer", "")
+                    current_course.setdefault("transfer_details", "")
+                    data["courses"].append(current_course.copy())
+                    current_course = {}
+
+        # Add any remaining course
         if current_course:
             current_course.setdefault("course_code", "")
             current_course.setdefault("course_name", "")
@@ -104,6 +121,18 @@ def parse_transcript_data(text: str) -> TranscriptData:
             current_course.setdefault("is_transfer", "")
             current_course.setdefault("transfer_details", "")
             data["courses"].append(current_course.copy())
+
+        # Clean up any duplicate or incomplete entries
+        cleaned_courses = []
+        seen_courses = set()
+        for course in data["courses"]:
+            course_key = f"{course['course_code']}_{course['course_name']}"
+            if course_key not in seen_courses:
+                seen_courses.add(course_key)
+                if course["course_code"] or course["course_name"]:
+                    cleaned_courses.append(course)
+        
+        data["courses"] = cleaned_courses
 
         return data
         

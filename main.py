@@ -34,8 +34,6 @@ def render_upload_tab(client):
                         if results:
                             st.session_state.processed_data = results
                             st.success(f"Successfully processed {len(results)} transcripts")
-                            print(results)
-                            
                             combined_data = combine_transcript_data(results)
                             if combined_data:
                                 st.session_state.combined_data = combined_data

@@ -143,6 +143,7 @@ def validate_course(course):
 def display_combined_results(data: Dict):
     """Display combined results with evaluation"""
     try:
+        
         # Create tabs for different sections of the display
         tabs = st.tabs(["Student & Course Info", "Transcript Key", "Basic Statistics"])
         

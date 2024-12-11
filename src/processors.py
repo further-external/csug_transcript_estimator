@@ -94,7 +94,7 @@ def combine_transcript_data(all_results: List[TranscriptData]) -> Optional[Combi
             result.get("source_file", "Unknown"),
             seen_courses
         )
-    
+        #print(combined_data)
     return combined_data
 
 def add_institution_data(combined_data: dict, institution: dict, 
@@ -132,7 +132,6 @@ def add_course_data(combined_data: dict, courses: list,
                 "source_institution": institution_name,
                 "source_file": source_file
             }
-            print(course_entry)
             
             combined_data["courses"].append(course_entry)
             

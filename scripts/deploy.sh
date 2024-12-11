@@ -24,8 +24,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t $IMAGE --push .
 
 
 # Deploy the container to Cloud Run with CPU, memory, and port configuration
-CPU="2"          # Number of vCPUs
-MEMORY="2Gi"     # Memory size
+CPU="8"          # Number of vCPUs
+MEMORY="8Gi"     # Memory size
 PORT="8080"      # Default port
 
 # Deploy the container to Cloud Run

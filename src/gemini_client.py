@@ -17,7 +17,8 @@ class GeminiClient:
         try:
             genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
             self.text_model = genai.GenerativeModel('gemini-1.5-pro')
-            self.vision_model = genai.GenerativeModel('gemini-1.5-flash')
+            generation_config= genai.GenerationConfig(temperature=2)
+            self.vision_model = genai.GenerativeModel('gemini-1.5-flash-002', generation_config=generation_config)
             return True
         except Exception as e:
             st.error(f"Error initializing Gemini: {str(e)}")
@@ -27,7 +28,7 @@ class GeminiClient:
         """Process PDF with Gemini Vision API"""
         try:
             prompt = """
-            Extract ALL information from this transcript.
+            Extract ALL information from this transcript. If the data has watermark, please read grade, course code, course name, credits, grade, term, year, and transfer details carefully.
             If it's examination like AP, make sure you to include exam name, grade and year taken  in the `Course Information` section.
             
             For transfer credits:
@@ -36,6 +37,38 @@ class GeminiClient:
             - Look for any indicators in the transcript key that denote transfer credits
             - Pay attention to different institution names listed with courses
             
+            For course codes:
+            - Look for alphanumeric combinations in formats like:
+            * MATH1310 (letters followed directly by numbers)
+            * PEB 1138 (letters, space, then numbers)
+            * SPAN 1301 (subject code followed by course number)
+            - Course codes may appear before or after course names
+            - Some codes may have spaces between letters and numbers, others may not
+
+            For grades:
+            - Look for letter grades (A, B, C, D, F) with optional +/- modifiers
+            - Look for numerical grades (e.g., 4.0, 3.0)
+            - Look for special grades (P/Pass, CR/Credit, W/Withdrawn)
+            - Check for grades both after course details and in separate columns
+            - Grade may appear after course name or on a separate line. Make sure you read the grade completely and correctly.
+            For each grade you extract:
+                1. Double check the grade multiple times
+                2. Compare with any grade point calculations or summaries if available
+                3. Verify the grade matches any GPA calculations provided
+                4. If there's any uncertainty due to watermarks or unclear text, note it explicitly
+
+            For Year:
+            - Look for the year the course was taken
+            - Check for year after course details or in a separate column
+            - Year may appear after course name or on a separate line. Make sure you read the year completely and correctly.
+            - Year could be mentioned in the term as 16/FA which could mean 2016 Fall, extract 2016 as year
+
+            For Term:
+            - Look for the term the course was taken
+            - Check for term after course details or in a separate column
+            - Term may appear after course name or on a separate line. Make sure you read the term completely and correctly.
+            - Term could be mentioned in the term as 16/FA which could mean 2016 Fall, extract 'Fall' as term
+
             
             Format it EXACTLY as shown below:
 
@@ -50,7 +83,7 @@ class GeminiClient:
 
             Course Information:
             [List every course with exactly this format, one course at a time:]
-            Course Code: [exact code]
+            Course Code: [Extract full course code including both letters and numbers, maintaining original spacing/format (e.g., "MATH1310" or "PEB 1138")]
             Course Name: [full course name]
             Credits: [number]
             Grade: [grade]
