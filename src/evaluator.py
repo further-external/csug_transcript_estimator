@@ -60,34 +60,35 @@ class TransferCreditEvaluator:
         """Check if grade meets minimum requirements"""
         if not grade:
             return False
-            
-        # Handle Pass/Satisfactory grades
-        if grade.upper() in ['P', 'S', 'CR']:
-            return True  # Assuming these are equivalent to C/70% or higher as per policy
-            
-        min_grade = (self.config.min_grade_undergraduate 
-                    if self.config.program_level == ProgramLevel.UNDERGRADUATE 
-                    else self.config.min_grade_graduate)
-                    
-        try:
-            grade_value = self._grade_values.get(grade.upper(), 0.0)
-            min_grade_value = self._grade_values.get(min_grade.upper(), 0.0)
-            return grade_value >= min_grade_value
-        except:
-            return False
-
-    def _check_credit_age(self, course_date: datetime) -> bool:
-        """Check if credits meet age requirements"""
-        if not course_date:
-            return True  # If no date available, assume credits are valid
-            
-        age_limit = self.config.credit_age_limit_years
         
-        # All graduate credits must be within age limit
-        if self.config.program_level == ProgramLevel.GRADUATE:
-            return (self.config.current_date - course_date).days <= (age_limit * 365)
+        if grade == 'Active':  
+            return True
             
-        return True  # Undergraduate credits don't expire by default
+        if grade.upper() in ['P', 'S', 'CR']:
+            return True
+        
+        try:
+            # Remove % symbol if present and convert to float
+            grade_cleaned = grade.replace('%', '').strip()
+            numeric_grade = float(grade_cleaned)
+            
+            # Check percentage grade
+            if '%' in grade:
+                return numeric_grade >= 70.0
+            # Check GPA-style grade
+            return numeric_grade >= 3.0
+                
+        except ValueError:
+            min_grade = (self.config.min_grade_undergraduate 
+                        if self.config.program_level == ProgramLevel.UNDERGRADUATE 
+                        else self.config.min_grade_graduate)
+                        
+            try:
+                grade_value = self._grade_values.get(grade.upper(), 0.0)
+                min_grade_value = self._grade_values.get(min_grade.upper(), 0.0)
+                return grade_value >= min_grade_value
+            except:
+                return False
 
     def evaluate_course(self, course: Dict) -> Dict:
         """Evaluate a single course for transfer eligibility"""
