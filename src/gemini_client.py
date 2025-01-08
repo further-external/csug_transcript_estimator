@@ -85,13 +85,14 @@ class GeminiClient:
             Grade: [grade]
             Term: [term if available]
             Year: [year if available]
-            Is Transfer: [Write True ONLY if ANY of these conditions are met:
+            Is Transfer: [True if any of the courses listed on the transcripts are transferred from other institutions.
+            You can use following conditions to verify if the course is transferred:
                          1. Course is explicitly marked as transferred
                          2. Course is from a different institution
                          3. Course has transfer credit indicators
                          4. Course appears in a transfer credit section
                          Otherwise, write False]
-            Transfer Details: [transfer_details If Is Transfer is "Yes", include the source institution or program (e.g., "Transferred from XYZ College", "AP Credit"). Leave empty if not a transfer]
+            Transfer Details: [transfer_details If the following condition is "True", include the source institution or program (e.g., "Transferred from XYZ College", "AP Credit"). Leave empty if not a transfer]
             [blank line between each course]
             [blank line between each course]
 

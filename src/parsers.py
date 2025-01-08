@@ -72,7 +72,7 @@ def parse_transcript_data(text: str) -> TranscriptData:
                     "term": "term",
                     "year": "year",
                     "semester": "term",
-                    "is_transfer": "is_transfer",
+                    "is transfer": "is_transfer",
                     "transfer details": "transfer_details"
                 }
                 
@@ -85,6 +85,8 @@ def parse_transcript_data(text: str) -> TranscriptData:
                         value = float(credits) if credits else 0
                     except ValueError:
                         value = 0
+                elif mapped_key == "is transfer":
+                    value = value.lower() == "true"
                 
                 # Start new course entry if we hit another course code/name
                 if mapped_key in ["course_code", "course_name"] and current_course.get(mapped_key):
@@ -94,7 +96,7 @@ def parse_transcript_data(text: str) -> TranscriptData:
                     current_course.setdefault("grade", "")
                     current_course.setdefault("term", "")
                     current_course.setdefault("year", "")
-                    current_course.setdefault("is_transfer", "")
+                    current_course.setdefault("is_transfer", False)
                     current_course.setdefault("transfer_details", "")
                     data["courses"].append(current_course.copy())
                     current_course = {}
@@ -105,7 +107,7 @@ def parse_transcript_data(text: str) -> TranscriptData:
                 if all(k in current_course for k in ["course_code", "course_name", "credits", "grade"]):
                     current_course.setdefault("term", "")
                     current_course.setdefault("year", "")
-                    current_course.setdefault("is_transfer", "")
+                    current_course.setdefault("is_transfer", False)
                     current_course.setdefault("transfer_details", "")
                     data["courses"].append(current_course.copy())
                     current_course = {}
@@ -118,7 +120,7 @@ def parse_transcript_data(text: str) -> TranscriptData:
             current_course.setdefault("grade", "")
             current_course.setdefault("term", "")
             current_course.setdefault("year", "")
-            current_course.setdefault("is_transfer", "")
+            current_course.setdefault("is_transfer", False)
             current_course.setdefault("transfer_details", "")
             data["courses"].append(current_course.copy())
 

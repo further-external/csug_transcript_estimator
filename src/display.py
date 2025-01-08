@@ -2,7 +2,130 @@
 import streamlit as st
 import pandas as pd
 from typing import Dict, List
-from .models import CombinedTranscriptData, TranscriptKeyData
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape,letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from .models import TranscriptKeyData
+from io import BytesIO
+
+CREDIT_CATEGORIES = [
+    "General Education", 
+    "Major Requirement",
+    "Major Elective",
+    "Free Elective",
+    "Core Requirement",
+    "Minor Requirement",
+    "Prerequisites",
+    "Not Applicable"
+]
+
+def generate_pdf(data: Dict) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30
+    )
+    elements.append(Paragraph("Transcript Analysis Report", title_style))
+    elements.append(Spacer(1, 20))
+
+    # Student Information
+    elements.append(Paragraph("Student Information", styles['Heading2']))
+    student_data = [[k, v] for k, v in data.get('student_info', {}).items()]
+    if student_data:
+        student_table = Table(student_data)
+        student_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(student_table)
+        elements.append(Spacer(1, 20))
+
+    # Course Information
+    elements.append(Paragraph("Course Information", styles['Heading2']))
+    
+    courses = data.get('courses', [])
+    if courses:
+        # Include all fields from the DataFrame
+        headers = [
+            'Course Code', 'Course Name', 'Credits', 'Grade', 'Credit Category',
+            'Term', 'Year', 'Is Transfer', 'Transfer Details', 
+            'Source Institution', 'Source File', 'Notes'
+        ]
+        
+        course_data = [headers]
+        for course in courses:
+            course_data.append([
+                str(course.get('course_code', '')),
+                str(course.get('course_name', '')),
+                str(course.get('credits', '')),
+                str(course.get('grade', '')),
+                str(course.get('credit_category', 'Not Applicable')),
+                str(course.get('term', '')),
+                str(course.get('year', '')),
+                'Yes' if course.get('is_transfer') else 'No',
+                str(course.get('transfer_details', '')),
+                str(course.get('source_institution', '')),
+                str(course.get('source_file', '')),
+                str(course.get('notes', ''))
+            ])
+            
+        # Carefully balanced column widths for landscape mode (total ~ 750)
+        col_widths = [
+            70,   # Course Code
+            140,  # Course Name
+            35,   # Credits
+            35,   # Grade
+            70,   # Credit Category
+            45,   # Term
+            35,   # Year
+            45,   # Is Transfer
+            90,   # Transfer Details
+            70,   # Source Institution
+            60,   # Source File
+            55    # Notes
+        ]
+        course_table = Table(course_data, colWidths=col_widths)
+        course_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),  # Smaller header font
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),  # Less padding
+            ('TOPPADDING', (0, 0), (-1, -1), 4),   # Add top padding
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),     # Smaller content font
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),  # Less left padding
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3), # Less right padding
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),  # Thinner grid lines
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),   # Center headers
+            ('ALIGN', (2, 1), (2, -1), 'RIGHT'),    # Right align credits
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),     # Left align course code
+            ('ALIGN', (1, 1), (1, -1), 'LEFT'),     # Left align course name
+            ('WORDWRAP', (0, 0), (-1, -1), True),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP')     # Top align all cells
+        ]))
+        elements.append(course_table)
+
+    doc.build(elements)
+    pdf_data = buffer.getvalue()
+    buffer.close()
+    return pdf_data
 
 def display_evaluation_results(evaluation_results: Dict):
     """Display transfer credit evaluation results with enhanced rejection details"""
@@ -169,15 +292,22 @@ def display_combined_results(data: Dict):
             if data.get("courses"):
                 courses_df = pd.DataFrame(data["courses"])
                 courses_df['notes'] = courses_df.apply(validate_course, axis=1)
+
+                if 'credit_category' not in courses_df.columns:
+                    courses_df['credit_category'] = 'Not Applicable'
                 
                 # Define grade options
                 grade_options = [
-                    "A", "A-", "B+", "B", "B-", "C+", "C", "C-", 
+                    "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "S",
                     "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
                 ]
                 
                 # Define term options
                 term_options = ["Fall", "Winter", "Spring", "Summer"]
+
+                # Convert is_transfer to boolean
+                courses_df['is_transfer'] = courses_df['is_transfer'].fillna(True)
+                courses_df['is_transfer'] = courses_df['is_transfer'].apply(lambda x: bool(x) if isinstance(x, (bool, int)) else x.lower() == 'true' if isinstance(x, str) else False)
                 
                 edited_df = st.data_editor(
                     courses_df,
@@ -203,6 +333,7 @@ def display_combined_results(data: Dict):
                             required=True,
                             format="%.1f",
                         ),
+                        "credit_category": st.column_config.SelectboxColumn("Credit Category", help="Category of credit", options=CREDIT_CATEGORIES, required=True),
                         "grade": st.column_config.SelectboxColumn(
                             "Grade",
                             help="Course grade",
@@ -288,6 +419,18 @@ def display_combined_results(data: Dict):
                     st.metric("Transfer Courses", transfer_courses)
                     st.metric("Transfer Credits", f"{transfer_credits:.1f}")
             
+
+        if st.button("Generate PDF"):
+            pdf_data = generate_pdf({
+                'student_info': data.get('student_info', {}),
+                'courses': edited_df.to_dict('records')
+            })
+            st.download_button(
+                "Download PDF",
+                pdf_data,
+                "transcript_analysis.pdf",
+                "application/pdf"
+            )            
         # Return edited dataframe if it exists
         return edited_df if 'edited_df' in locals() else None
 
