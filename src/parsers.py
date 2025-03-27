@@ -8,7 +8,6 @@ def parse_transcript_data(json_text: str) -> TranscriptData:
     try:
         # Parse the JSON string into a Python dictionary
         json_data = json.loads(json_text)
-        st.json(json_text)
         
         # Initialize the TranscriptData structure
         data: TranscriptData = {

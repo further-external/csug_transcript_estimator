@@ -2,6 +2,10 @@ import streamlit as st
 import google.generativeai as genai
 from .models import TranscriptKeyData
 from typing import Dict
+import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
 class GeminiClient:
@@ -13,7 +17,7 @@ class GeminiClient:
         try:
             genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
             generation_config= genai.GenerationConfig(temperature=0, response_mime_type = "application/json")
-            self.llm = genai.GenerativeModel('gemini-1.5-pro', generation_config=generation_config)
+            self.llm = genai.GenerativeModel('gemini-2.0-pro-exp-02-05', generation_config=generation_config)
             return True
         except Exception as e:
             st.error(f"Error initializing Gemini: {str(e)}")
@@ -89,8 +93,6 @@ class GeminiClient:
                          4. Course appears in a transfer credit section
                          Otherwise, write False]
             Transfer Details: [transfer_details If the following condition is "True", include the source institution or program (e.g., "Transferred from XYZ College", "AP Credit"). Leave empty if not a transfer]
-            [blank line between each course]
-            [blank line between each course]
 
     
             """
@@ -206,7 +208,7 @@ class GeminiClient:
         try:
             prompt = """
             Extract the transfer credit policy text from this PDF. Focus on sections that discuss transferability, eligibility, and any specific conditions or clauses.
-            Ensure to include all relevant details that would help in determining transfer credit eligibility.
+            Ensure to include all relevant details that would help in determining transfer credit eligibility. Ensure all rules are captured in the text.
             """
             
             response = self.llm.generate_content(
@@ -218,50 +220,61 @@ class GeminiClient:
             st.error(f"Error extracting policy text: {str(e)}")
             return None
         
-    def verify_with_policy_handbook(self, course_info: Dict, policy_text: str) -> Dict:
-         # Construct a detailed prompt for Gemini
-        prompt = f"""
-        Transfer Credit Policy Verification:
+    
+def verify_with_policy_handbook(self, course_info: Dict, policy_text: str) -> Dict:
+    # Construct a detailed prompt for Gemini
+    prompt = f"""
+    Please analyze the evaluation once with the transfer policy handbook provided below.:
+    1. Is this course eligible for transfer based on the policy?
+    2. What specific policy clauses support or reject the transfer?
+    3. Provide a confidence score for the recommendation (0-100%)
 
-        Course Details:
-        - Course Name: {course_info.get('course_name', 'N/A')}
-        - Course Code: {course_info.get('course_code', 'N/A')}
-        - Institution: {course_info.get('source_institution', 'N/A')}
-        - Year: {course_info.get('year', 'N/A')}
-        - Term: {course_info.get('term', 'N/A')}
-        - Grade/Status: {course_info.get('grade', course_info.get('status', 'N/A'))}
+    Course Details:
+    - Course Name: {course_info.get('course_name', 'N/A')}
+    - Course Code: {course_info.get('course_code', 'N/A')}
+    - Institution: {course_info.get('source_institution', 'N/A')}
+    - Year: {course_info.get('year', 'N/A')}
+    - Term: {course_info.get('term', 'N/A')}
+    - Grade/Status: {course_info.get('grade', course_info.get('status', 'N/A'))}
 
-        Please analyze:
-        1. Is this course eligible for transfer based on the policy?
-        2. What specific policy clauses support or reject the transfer?
-        3. Provide a confidence score for the recommendation (0-100%)
-        
-        Respond in a JSON format:
+
+    
+    Respond ONLY in this exact JSON format:
         {
-            "is_transferable": true/false,
-            "supporting_clauses": ["clause1", "clause2"],
+            "is_transferable": true,
+            "supporting_clauses": ["Clause describing why the course is transferable"],
             "confidence_score": 85,
-            "additional_notes": "Optional detailed explanation"
+            "additional_notes": "Explanation of transfer decision"
         }
 
-        Transfer Policy Text:
-        {policy_text} 
+    Here's the Transfer Policy Text for reference:
+    {policy_text} 
+    """
 
-        """
+    try:
+        logging.info(prompt)
+        verification_result = self.llm.generate_content(prompt)
+        verification_json_str = verification_result.text
+    
+        verification_json = json.loads(verification_json_str)
 
-        try:
-            verification_result = self.llm.generate_content(prompt)
-            
-            return {
-                "policy_verified": True,
-                "is_transferable": verification_result.get('is_transferable', False),
-                "supporting_clauses": verification_result.get('supporting_clauses', []),
-                "confidence_score": verification_result.get('confidence_score', 0),
-                "additional_notes": verification_result.get('additional_notes', '')
-            }
-        except Exception as e:
-            print(f"Error in policy verification: {e}")
-            return {
-                "policy_verified": False,
-                "error": str(e)
-            }
+        return {
+            "transfer_policy_verified": True,
+            "is_transferable": verification_json.get('is_transferable', False),
+            "supporting_clauses": verification_json.get('supporting_clauses', []),
+            "confidence_score": verification_json.get('confidence_score', 0),
+            "additional_notes": verification_json.get('additional_notes', '')
+        }
+    except json.JSONDecodeError as jde:
+        print(f"JSON Parsing error in policy verification: {jde}")
+        return {
+            "transfer_policy_verified": False,
+            "error": f"JSON parsing error: {str(jde)}",
+            "raw_response": verification_result.text
+        }
+    except Exception as e:
+        print(f"Error in policy verification: {e}")
+        return {
+            "transfer_policy_verified": False,
+            "error": str(e)
+        }

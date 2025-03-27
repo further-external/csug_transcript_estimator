@@ -3,6 +3,7 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+import streamlit as st
 
 from src.gemini_client import GeminiClient
 
@@ -157,56 +158,96 @@ class TransferCreditEvaluator:
                     course, 
                     self.transfer_policy_text
                 )
+                st.warning(transfer_policy_verification)
                 
                 # Merge policy verification results
-                evaluation['transfer_policy_verification'] = transfer_policy_verification
-                
-                # Override transferability if policy verification provides definitive input
-                if transfer_policy_verification.get('transfer_policy_verified'):
-                    evaluation['transferable'] = transfer_policy_verification.get('is_transferable', evaluation['transferable'])
+                if transfer_policy_verification:
+                    evaluation['transfer_policy_verification'] = transfer_policy_verification
                     
-                    # Add policy-related rejection reasons if applicable
-                    if not transfer_policy_verification.get('is_transferable'):
-                        evaluation['rejection_reasons'].append('Failed policy verification')
+                    # Override transferability if policy verification provides definitive input
+                    if transfer_policy_verification.get('transfer_policy_verified'):
+                        evaluation['transferable'] = transfer_policy_verification.get('is_transferable', evaluation['transferable'])
+                        
+                        # Add policy-related rejection reasons if applicable
+                        if not transfer_policy_verification.get('is_transferable'):
+                            evaluation['rejection_reasons'].append('Failed policy verification')
             
             except Exception as e:
-                evaluation['transfer policy_verification_error'] = str(e)
+                #print(f"Error in evaluate course: {e}")
+                evaluation['transfer_policy_verification_error'] = str(e)
         
         return evaluation
         
     
     def evaluate_transcript(self, transcript_data: Dict) -> Dict:
-        """Evaluate entire transcript for transfer credit eligibility"""
+        """
+        Evaluate entire transcript for transfer credit eligibility with policy verification
+        
+        Args:
+            transcript_data: Transcript information dictionary
+        
+        Returns:
+            Comprehensive evaluation results including policy verification
+        """
         evaluation_results = {
             'student_info': transcript_data.get('student_info', {}),
-            'institution_info': transcript_data.get('institutions', []),
+            'institution_info': transcript_data.get('institution_info', {}),
             'evaluated_courses': [],
             'summary': {
                 'total_credits_attempted': 0,
                 'total_credits_accepted': 0,
                 'total_courses_attempted': 0,
                 'total_courses_accepted': 0,
-                'rejected_courses': []
+                'rejected_courses': [],
+                'policy_verification_summary': {
+                    'total_verified_courses': 0,
+                    'total_policy_exceptions': 0,
+                    'verified_courses_details': []
+                }
             }
         }
         
         # Evaluate each course
         for course in transcript_data.get('courses', []):
+            # Perform course evaluation
             evaluated_course = self.evaluate_course(course)
             evaluation_results['evaluated_courses'].append(evaluated_course)
             
-            # Update summary statistics
-            evaluation_results['summary']['total_credits_attempted'] += evaluated_course['credits']
+            # Update summary statistics for course attempts
+            evaluation_results['summary']['total_credits_attempted'] += evaluated_course.get('credits', 0)
             evaluation_results['summary']['total_courses_attempted'] += 1
             
-            if evaluated_course['transferable']:
-                evaluation_results['summary']['total_credits_accepted'] += evaluated_course['credits']
+            # Track policy verification details
+            if evaluated_course.get('transfer_policy_verification'):
+                policy_ver = evaluated_course['transfer_policy_verification']
+                policy_summary = evaluation_results['summary']['policy_verification_summary']
+                
+                policy_summary['total_verified_courses'] += 1
+                
+                # Track policy exceptions or interesting cases
+                if not policy_ver.get('is_transferable', False):
+                    policy_summary['total_policy_exceptions'] += 1
+                
+                # Store detailed policy verification for reference
+                policy_summary['verified_courses_details'].append({
+                    'course_code': evaluated_course.get('course_code'),
+                    'course_name': evaluated_course.get('course_name'),
+                    'is_transferable': policy_ver.get('is_transferable', False),
+                    'confidence_score': policy_ver.get('confidence_score', 0),
+                    'supporting_clauses': policy_ver.get('supporting_clauses', []),
+                    'additional_notes': policy_ver.get('additional_notes', '')
+                })
+            
+            # Update accepted courses
+            if evaluated_course.get('transferable'):
+                evaluation_results['summary']['total_credits_accepted'] += evaluated_course.get('credits', 0)
                 evaluation_results['summary']['total_courses_accepted'] += 1
             else:
+                # Track rejected courses
                 evaluation_results['summary']['rejected_courses'].append({
-                    'course_code': evaluated_course['course_code'],
-                    'course_name': evaluated_course['course_name'],
-                    'reasons': evaluated_course['rejection_reasons']
+                    'course_code': evaluated_course.get('course_code'),
+                    'course_name': evaluated_course.get('course_name'),
+                    'reasons': evaluated_course.get('rejection_reasons', [])
                 })
         
         return evaluation_results

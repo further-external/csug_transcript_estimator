@@ -128,10 +128,13 @@ def generate_pdf(data: Dict) -> bytes:
     return pdf_data
 
 def display_evaluation_results(evaluation_results: Dict):
-    """Display transfer credit evaluation results with enhanced rejection details"""
+    """
+    Display comprehensive transfer credit evaluation results 
+    with detailed insights and policy verification details
+    """
     st.header("Transfer Credit Evaluation Results")
     
-    # Summary metrics [Previous code remains unchanged]
+    # Summary metrics
     summary = evaluation_results.get('summary', {})
     col1, col2, col3 = st.columns(3)
     
@@ -149,19 +152,42 @@ def display_evaluation_results(evaluation_results: Dict):
     # Display evaluated courses
     if evaluation_results.get('evaluated_courses'):
         st.subheader("Evaluated Courses")
-        df = pd.DataFrame(evaluation_results['evaluated_courses'])
         
-        # Calculate transfer status with detailed labels
+        # Prepare courses data with policy verification details
+        courses_data = []
+        for course in evaluation_results['evaluated_courses']:
+            course_entry = course.copy()
+            
+            # Add policy verification details
+            policy_ver = course.get('transfer_policy_verification', {})
+            course_entry['transfer_policy_verified'] = (
+                '✅ Verified' if policy_ver.get('transfer_policy_verified') 
+                else '❌ Not Verified'
+            )
+            course_entry['policy_confidence'] = policy_ver.get('confidence_score', 'N/A')
+            course_entry['policy_supporting_clauses'] = ', '.join(
+                policy_ver.get('supporting_clauses', [])
+            )
+            
+            courses_data.append(course_entry)
+        
+        # Create DataFrame
+        df = pd.DataFrame(courses_data)
+        
+        # Calculate transfer status
         df['status'] = df.apply(
             lambda x: '✅ Accepted' if x['transferable'] 
             else f'❌ Rejected ({len(x["rejection_reasons"])} issues)',
             axis=1
         )
         
+        # Display dataframe with enhanced configuration
         st.dataframe(
             df[[
                 'course_code', 'course_name', 'credits', 
-                'grade', 'status', 'rejection_reasons'
+                'grade', 'status', 'rejection_reasons',
+                'transfer_policy_verified', 'policy_confidence', 
+                'policy_supporting_clauses'
             ]],
             use_container_width=True,
             hide_index=True,
@@ -189,34 +215,92 @@ def display_evaluation_results(evaluation_results: Dict):
                 'rejection_reasons': st.column_config.TextColumn(
                     'Issues',
                     width='large'
+                ),
+                'transfer_policy_verified': st.column_config.TextColumn(
+                    'Policy Verification',
+                    width='medium'
+                ),
+                'policy_confidence': st.column_config.TextColumn(
+                    'Confidence',
+                    width='small'
+                ),
+                'policy_supporting_clauses': st.column_config.TextColumn(
+                    'Supporting Policy Clauses',
+                    width='large'
                 )
             }
         )
 
-    # Enhanced rejected courses display
+    # Policy Verification Summary
+    policy_summary = summary.get('policy_verification_summary', {})
+    if policy_summary.get('total_verified_courses', 0) > 0:
+        st.subheader("Policy Verification Insights")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "Total Verified Courses", 
+                policy_summary.get('total_verified_courses', 0)
+            )
+        with col2:
+            st.metric(
+                "Policy Exceptions", 
+                policy_summary.get('total_policy_exceptions', 0)
+            )
+        with col3:
+            exception_rate = (
+                policy_summary.get('total_policy_exceptions', 0) / 
+                policy_summary.get('total_verified_courses', 1) * 100
+            )
+            st.metric("Exception Rate", f"{exception_rate:.1f}%")
+        
+        # Detailed Policy Verification
+        if policy_summary.get('verified_courses_details'):
+            st.subheader("Detailed Policy Verification")
+            
+            for course_detail in policy_summary['verified_courses_details']:
+                with st.expander(f"{course_detail['course_code']} - {course_detail.get('course_name', 'Unknown')}"):
+                    # Transferability Status
+                    status_color = "green" if course_detail['is_transferable'] else "red"
+                    st.markdown(f"**Transferability:** <span style='color:{status_color}'>{'Transferable' if course_detail['is_transferable'] else 'Not Transferable'}</span>", unsafe_allow_html=True)
+                    
+                    # Confidence Score
+                    st.write(f"**Confidence Score:** {course_detail.get('confidence_score', 'N/A')}")
+                    
+                    # Supporting Policy Clauses
+                    if course_detail.get('supporting_clauses'):
+                        st.markdown("**Supporting Policy Clauses:**")
+                        for clause in course_detail['supporting_clauses']:
+                            st.markdown(f"- {clause}")
+                    
+                    # Additional Notes
+                    if course_detail.get('additional_notes'):
+                        st.info(f"**Additional Notes:** {course_detail['additional_notes']}")
+
+    # Rejected Courses Section
     rejected_courses = summary.get('rejected_courses', [])
     if rejected_courses:
         st.subheader("Rejected Courses Details")
         
-        # Create detailed explanation mapping
+        # Reason explanations
         reason_explanations = {
-            'Grade below minimum requirement': """
-                The course grade does not meet the minimum requirements:
-                - Undergraduate: C- or better
-                - Graduate: B- or better
-                Transfer credits must demonstrate sufficient mastery of the subject matter.
+            'Grade or status below requirement': """
+                Course grade does not meet minimum requirements:
+                - Undergraduate: Minimum grade of C-
+                - Graduate: Minimum grade of B-
+                Demonstrates insufficient mastery of subject matter.
             """,
             'Credits exceed age limit': """
-                The course was completed outside the acceptable timeframe:
-                - Graduate: Must be within last 10 years
-                - Undergraduate: No standard expiration
-                This ensures knowledge is current and relevant.
+                Course completed outside acceptable timeframe:
+                - Typically within 10 years for relevance
+                - Ensures currency of knowledge
+                Older credits may require additional review
             """,
-            'Non-standard grade': """
-                The grade format is not recognized or cannot be evaluated:
-                - Standard letter grades (A through F)
-                - Pass/Fail grades may have special requirements
-                Clear grade documentation is required for evaluation.
+            'Failed policy verification': """
+                Course did not meet specific institutional transfer policies:
+                - Content may not align with program requirements
+                - Insufficient course equivalency
+                - Specialized policy constraints
             """
         }
         
@@ -230,14 +314,14 @@ def display_evaluation_results(evaluation_results: Dict):
                     st.markdown("---")
                 
                 st.info("""
-                    To appeal this decision:
-                    1. Submit additional documentation
-                    2. Provide course syllabus
-                    3. Request grade clarification
+                    Appeal Process:
+                    1. Submit comprehensive documentation
+                    2. Provide detailed course syllabus
+                    3. Request formal grade clarification
                     4. Demonstrate course equivalency
                 """)
     else:
-        st.success("No rejected courses found!")
+        st.success("No courses were rejected during the transfer evaluation.")
 
 def validate_course(course):
     """Validate course data and return any issues"""
