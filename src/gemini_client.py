@@ -1,24 +1,19 @@
 import streamlit as st
 import google.generativeai as genai
 from .models import TranscriptKeyData
+from typing import Dict
 
-# gemini_client.py
-import streamlit as st
-import google.generativeai as genai
-from .models import TranscriptKeyData
 
 class GeminiClient:
     def __init__(self):
-        self.vision_model = None
-        self.text_model = None
+        self.llm = None
 
     def initialize(self) -> bool:
         """Initialize the Gemini models"""
         try:
             genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-            self.text_model = genai.GenerativeModel('gemini-1.5-pro')
-            generation_config= genai.GenerationConfig(temperature=2)
-            self.vision_model = genai.GenerativeModel('gemini-1.5-pro', generation_config=generation_config)
+            generation_config= genai.GenerationConfig(temperature=0, response_mime_type = "application/json")
+            self.llm = genai.GenerativeModel('gemini-1.5-pro', generation_config=generation_config)
             return True
         except Exception as e:
             st.error(f"Error initializing Gemini: {str(e)}")
@@ -66,7 +61,7 @@ class GeminiClient:
             - Term could be mentioned in the term as 16/FA which could mean 2016 Fall, extract 'Fall' as term
 
             
-            Format it EXACTLY as shown below:
+            Format it EXACTLY as shown below in json format. Do not add any extra information or change the format.:
 
             Student Information:
             Name: [student name]
@@ -83,6 +78,7 @@ class GeminiClient:
             Course Name: [full course name]
             Credits: [number]
             Grade: [grade]
+            Status: [status if available, e.g., "Active", "In Progress", "Withdrawn"]
             Term: [term if available]
             Year: [year if available]
             Is Transfer: [True if any of the courses listed on the transcripts are transferred from other institutions.
@@ -99,7 +95,7 @@ class GeminiClient:
     
             """
             
-            response = self.vision_model.generate_content(
+            response = self.llm.generate_content(
                 [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
             )
             
@@ -109,7 +105,7 @@ class GeminiClient:
             st.error(f"Error processing {filename}: {str(e)}")
             return None
         
-    def extract_transcript_key(self, pdf_content: bytes, filename: str, institution_name: str) -> TranscriptKeyData:
+    def extract_transcript_key(self, pdf_content: bytes, institution_name: str) -> TranscriptKeyData:
         """Extract transcript key information using Gemini Vision"""
         if not institution_name:
             st.warning(f"No institution name provided for transcript key extraction")
@@ -135,7 +131,7 @@ class GeminiClient:
             [List all academic terms and their definitions]
             """
             
-            response = self.vision_model.generate_content(
+            response = self.llm.generate_content(
                 [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
             )
             
@@ -203,3 +199,69 @@ class GeminiClient:
             cleaned_line = line.lstrip("•-*").strip()
             if cleaned_line:
                 key_data[section].append(cleaned_line)
+
+
+    def extract_policy_handbook(self, pdf_content: bytes) -> str:
+        """Extract policy text from PDF using Gemini Vision"""
+        try:
+            prompt = """
+            Extract the transfer credit policy text from this PDF. Focus on sections that discuss transferability, eligibility, and any specific conditions or clauses.
+            Ensure to include all relevant details that would help in determining transfer credit eligibility.
+            """
+            
+            response = self.llm.generate_content(
+                [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
+            )
+            return response.text
+            
+        except Exception as e:
+            st.error(f"Error extracting policy text: {str(e)}")
+            return None
+        
+    def verify_with_policy_handbook(self, course_info: Dict, policy_text: str) -> Dict:
+         # Construct a detailed prompt for Gemini
+        prompt = f"""
+        Transfer Credit Policy Verification:
+
+        Course Details:
+        - Course Name: {course_info.get('course_name', 'N/A')}
+        - Course Code: {course_info.get('course_code', 'N/A')}
+        - Institution: {course_info.get('source_institution', 'N/A')}
+        - Year: {course_info.get('year', 'N/A')}
+        - Term: {course_info.get('term', 'N/A')}
+        - Grade/Status: {course_info.get('grade', course_info.get('status', 'N/A'))}
+
+        Please analyze:
+        1. Is this course eligible for transfer based on the policy?
+        2. What specific policy clauses support or reject the transfer?
+        3. Provide a confidence score for the recommendation (0-100%)
+        
+        Respond in a JSON format:
+        {
+            "is_transferable": true/false,
+            "supporting_clauses": ["clause1", "clause2"],
+            "confidence_score": 85,
+            "additional_notes": "Optional detailed explanation"
+        }
+
+        Transfer Policy Text:
+        {policy_text} 
+
+        """
+
+        try:
+            verification_result = self.llm.generate_content(prompt)
+            
+            return {
+                "policy_verified": True,
+                "is_transferable": verification_result.get('is_transferable', False),
+                "supporting_clauses": verification_result.get('supporting_clauses', []),
+                "confidence_score": verification_result.get('confidence_score', 0),
+                "additional_notes": verification_result.get('additional_notes', '')
+            }
+        except Exception as e:
+            print(f"Error in policy verification: {e}")
+            return {
+                "policy_verified": False,
+                "error": str(e)
+            }

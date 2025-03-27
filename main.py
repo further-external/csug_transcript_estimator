@@ -63,7 +63,7 @@ def render_upload_tab(client):
         if edited_df is not None:
             st.session_state.combined_data['courses'] = edited_df.to_dict('records')
 
-def render_review_tab():
+def render_review_tab(client):
     """Render the Review & Evaluate tab content"""
     st.header("Evaluate Transfer Credits")
     
@@ -79,7 +79,8 @@ def render_review_tab():
                 program_level = st.session_state.get('settings', {}).get('program_level', 'undergraduate')
                 
                 # Create evaluator and process results
-                evaluator = create_evaluator(program_level=program_level)
+                transfer_policy_pdf = st.session_state.get('settings', {}).get('policy_handbook_pdf')
+                evaluator = create_evaluator(client,program_level=program_level,transfer_policy_pdf=transfer_policy_pdf)
                 evaluation_results = evaluator.evaluate_transcript(st.session_state.combined_data)
                 
                 # Store evaluation results and set flag
@@ -161,7 +162,13 @@ def render_settings_tab():
         value=float(st.session_state.settings['max_major_transfer_percentage']),
         step=5.0
     )
-    
+
+    st.session_state.settings['policy_handbook_pdf']= st.file_uploader(
+        "Upload Transfer Policy PDF (optional)",
+        type="pdf",
+        key="policy_pdf"
+    )
+
     # Save settings button
     if st.button("Save Settings"):
         st.success("Settings saved successfully!")
@@ -195,7 +202,7 @@ def main():
         render_upload_tab(client)
         
     with review_tab:
-        render_review_tab()
+        render_review_tab(client)
         
     with settings_tab:
         render_settings_tab()

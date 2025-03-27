@@ -375,6 +375,11 @@ def display_combined_results(data: Dict):
                             help="Data quality issues",
                             required=False,
                         ),
+                          "status": st.column_config.TextColumn(
+                            "Status",
+                            help="Status",
+                            required=False,
+                        ),
                     },
                     hide_index=True,
                 )

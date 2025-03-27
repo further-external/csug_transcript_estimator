@@ -43,7 +43,6 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
                 pdf_file.seek(0)
                 key_data = client.extract_transcript_key(
                     pdf_content=pdf_file.read(),
-                    filename=pdf_file.name,
                     institution_name=institution_name
                 )
                 
@@ -130,7 +129,8 @@ def add_course_data(combined_data: dict, courses: list,
                 "is_transfer": course.get("is_transfer", False),
                 "transfer_details": course.get("transfer_details",""),
                 "source_institution": institution_name,
-                "source_file": source_file
+                "source_file": source_file,
+                "status": course.get("status", "Unknown")
             }
             
             combined_data["courses"].append(course_entry)

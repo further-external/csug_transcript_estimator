@@ -1,7 +1,10 @@
 from datetime import datetime
-from typing import Dict, List, TypedDict
+from typing import Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
+from streamlit.runtime.uploaded_file_manager import UploadedFile
+
+from src.gemini_client import GeminiClient
 
 class InstitutionType(Enum):
     REGIONAL = "regional"
@@ -22,10 +25,26 @@ class EvaluationConfig:
     credit_age_limit_years: int = 10
     min_grade_undergraduate: str = "C-"
     min_grade_graduate: str = "B-"
+    transfer_policy_pdf: Optional[UploadedFile] = None
     
 class TransferCreditEvaluator:
-    def __init__(self, config: EvaluationConfig):
+    def __init__(self,client: GeminiClient, config: EvaluationConfig, 
+                 transfer_policy_pdf: UploadedFile = None):
+        """
+        Initialize evaluator with optional PDF policy verification
+        
+        Args:
+            config: Evaluation configuration
+            policy_pdf_path: Optional path to transfer policy PDF
+            gemini_api_key: Optional Gemini API key for policy verification
+        """
         self.config = config
+        self.client = client
+        
+        if transfer_policy_pdf:
+            self.transfer_policy_text = client.extract_policy_handbook(transfer_policy_pdf.read())
+        
+
         self._grade_values = {
             'A+': 4.0, 'A': 4.0, 'A-': 3.7,
             'B+': 3.3, 'B': 3.0, 'B-': 2.7,
@@ -56,14 +75,24 @@ class TransferCreditEvaluator:
             
         return None
 
-    def _check_grade_requirement(self, grade: str) -> bool:
-        """Check if grade meets minimum requirements"""
+    def _check_grade_requirement(self, grade: str, status: str = None) -> bool:
+        """
+        Check if grade or status meets transfer requirements
+        
+        Args:
+            grade: Course grade
+            status: Course status (e.g., 'Active')
+        
+        Returns:
+            Boolean indicating if the course is eligible for transfer
+        """
+        # Explicitly handle 'Active' status
+        if status and status.lower() == 'active':
+            return True
+        
         if not grade:
             return False
         
-        if grade == 'Active':  
-            return True
-            
         if grade.upper() in ['P', 'S', 'CR']:
             return True
         
@@ -89,7 +118,7 @@ class TransferCreditEvaluator:
                 return grade_value >= min_grade_value
             except:
                 return False
-
+            
     def evaluate_course(self, course: Dict) -> Dict:
         """Evaluate a single course for transfer eligibility"""
         course_date = self._parse_term_date(course.get('term'), course.get('year'))
@@ -98,6 +127,7 @@ class TransferCreditEvaluator:
             'course_name': course.get('course_name'),
             'credits': course.get('credits', 0),
             'grade': course.get('grade'),
+            'status': course.get('status'),
             'term': course.get('term'),
             'year': course.get('year'),
             'is_transfer': course.get('is_transfer', False),
@@ -106,9 +136,12 @@ class TransferCreditEvaluator:
             'rejection_reasons': []
         }
         
-        # Check grade requirements
-        if not self._check_grade_requirement(course.get('grade')):
-            evaluation['rejection_reasons'].append('Grade below minimum requirement')
+        # Check grade and status requirements
+        if not self._check_grade_requirement(
+            course.get('grade'), 
+            course.get('status')
+        ):
+            evaluation['rejection_reasons'].append('Grade or status below requirement')
             
         # Check credit age
         if course_date and not self._check_credit_age(course_date):
@@ -117,8 +150,31 @@ class TransferCreditEvaluator:
         # Set transferable status
         evaluation['transferable'] = len(evaluation['rejection_reasons']) == 0
         
+        # Additional policy verification if policy verifier is set up
+        if self.transfer_policy_text:
+            try:
+                transfer_policy_verification = self.client.verify_with_policy_handbook(
+                    course, 
+                    self.transfer_policy_text
+                )
+                
+                # Merge policy verification results
+                evaluation['transfer_policy_verification'] = transfer_policy_verification
+                
+                # Override transferability if policy verification provides definitive input
+                if transfer_policy_verification.get('transfer_policy_verified'):
+                    evaluation['transferable'] = transfer_policy_verification.get('is_transferable', evaluation['transferable'])
+                    
+                    # Add policy-related rejection reasons if applicable
+                    if not transfer_policy_verification.get('is_transferable'):
+                        evaluation['rejection_reasons'].append('Failed policy verification')
+            
+            except Exception as e:
+                evaluation['transfer policy_verification_error'] = str(e)
+        
         return evaluation
-
+        
+    
     def evaluate_transcript(self, transcript_data: Dict) -> Dict:
         """Evaluate entire transcript for transfer credit eligibility"""
         evaluation_results = {
@@ -155,12 +211,32 @@ class TransferCreditEvaluator:
         
         return evaluation_results
 
-def create_evaluator(program_level: str = "undergraduate", 
-                    max_elective_credits: float = 60.0) -> TransferCreditEvaluator:
-    """Factory function to create a configured evaluator instance"""
+def create_evaluator(
+    client: GeminiClient,
+    transfer_policy_pdf: UploadedFile,
+    program_level: str = "undergraduate", 
+    max_elective_credits: float = 60.0) -> TransferCreditEvaluator:
+    """
+    Factory function to create a configured evaluator instance with optional policy verification
+    
+    Args:
+        program_level: Program level for evaluation
+        max_elective_credits: Maximum elective credits
+        policy_pdf_path: Optional path to transfer policy PDF
+        gemini_api_key: Optional Gemini API key
+    
+    Returns:
+        Configured TransferCreditEvaluator instance
+    """
     config = EvaluationConfig(
         program_level=ProgramLevel(program_level.lower()),
         current_date=datetime.now(),
-        max_elective_credits=max_elective_credits
+        max_elective_credits=max_elective_credits,
+        transfer_policy_pdf= transfer_policy_pdf,
     )
-    return TransferCreditEvaluator(config)
+    
+    return TransferCreditEvaluator(
+        client,
+        config, 
+        transfer_policy_pdf=transfer_policy_pdf, 
+    )
