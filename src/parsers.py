@@ -1,64 +1,115 @@
-from typing import Dict, Any
+from typing import Dict, Any, Union
 import json
 import streamlit as st
-from .models import TranscriptData
+from .models import Student
 
-def parse_transcript_data(json_text: str) -> TranscriptData:
-    """Parse transcript JSON into structured data"""
+# ▸ helper stubs – keep your own implementations
+def _parse_credits(val):         # str | int | float | None  →  float | None
     try:
-        # Parse the JSON string into a Python dictionary
-        json_data = json.loads(json_text)
-        
-        # Initialize the TranscriptData structure
-        data: TranscriptData = {
-            "student_info": {},
-            "institution_info": {},
-            "courses": [],
-            "source_file": ""
-        }
-        
-        # Parse student information
-        student_info = json_data.get("Student Information", {})
+        return float(val) if val not in (None, "") else None
+    except ValueError:
+        return None
+
+def _parse_bool(val):            # "true"/"false"/bool/None  →  bool | None
+    if val in (None, ""):
+        return None
+    if isinstance(val, bool):
+        return val
+    return str(val).lower() in {"true", "t", "yes", "y", "1"}
+
+
+# ▸ THE FIXED FUNCTION
+def parse_transcript_data(json_text: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Parse a transcript (JSON string *or* dict) into a normalised structure.
+
+    Returns
+    -------
+    {
+        "student_info": {...},
+        "institution_info": {...},
+        "courses": [ {...}, ... ]
+    }
+    """
+    # 1️⃣  JSON → dict
+    json_data: Dict[str, Any] = (
+        json_text if isinstance(json_text, dict) else json.loads(json_text)
+    )
+
+    # 2️⃣  Initialise output
+    data: Dict[str, Any] = {
+        "student_info": {},
+        "institution_info": {},
+        "courses": [],
+    }
+
+    # 3️⃣  ---------------- Student ----------------
+    # new top‑level keys
+    if "first_name" in json_data or "last_name" in json_data:
+        first = str(json_data.get("first_name", "")).strip()
+        last  = str(json_data.get("last_name", "")).strip()
+        data["student_info"]["name"] = (first + " " + last).strip()
+        data["student_info"]["id"]   = str(json_data.get("student_id", ""))
+    # legacy aliases
+    else:
+        student_raw = (
+            json_data.get("Student Information")
+            or json_data.get("Student")
+            or json_data.get("student_info")
+            or {}
+        )
         data["student_info"] = {
-            "name": str(student_info.get("Name", "")),
-            "id": str(student_info.get("ID", "")),
-            "program": str(student_info.get("Program", ""))
+            "name": str(student_raw.get("Name", "")),
+            "id":   str(student_raw.get("ID", "")),
+            "dob":  str(student_raw.get("Date of Birth", "")),
         }
-        
-        # Parse institution information
-        institution_info = json_data.get("Institution Information", {})
-        data["institution_info"] = {
-            "name": str(institution_info.get("Name", "")),
-            "location": str(institution_info.get("Location", ""))
+
+    # 4️⃣  -------------- Institution --------------
+    inst_raw = (
+        json_data.get("institution")                               # new key
+        or json_data.get("Institution Information")
+        or json_data.get("Institution")
+        or json_data.get("institutions")
+        or json_data.get("institution_info")
+        or {}
+    )
+    data["institution_info"] = {
+        "name":     str(inst_raw.get("name", inst_raw.get("Name", ""))),
+        "location": str(inst_raw.get("location", inst_raw.get("Location", ""))),
+        "type":     str(inst_raw.get("institution_type", inst_raw.get("Type", ""))),
+    }
+
+    # 5️⃣  ---------------- Courses ----------------
+    courses_raw = (
+        json_data.get("courses")                    # new key
+        or json_data.get("Course Information")
+        or json_data.get("Courses")
+        or []
+    )
+
+    # The sample JSON sometimes arrives as a dict with numeric keys → normalise to list
+    if isinstance(courses_raw, dict):
+        courses_raw = list(courses_raw.values())
+
+    for course in courses_raw:                      # type: Dict[str, Any]
+        processed = {
+            # new‑style keys first, then fallbacks
+            "course_code":  str(course.get("course_code",  course.get("Course Code", ""))),
+            "course_name":  str(course.get("course_title", course.get("Course Name", ""))),
+            "credits":      _parse_credits(course.get("credit",   course.get("Credits"))),
+            "grade":        str(course.get("grade",      course.get("Grade", ""))),
+            "year":         str(course.get("year",       course.get("Year", ""))),
+            "is_transfer":  _parse_bool(course.get("is_transfer", course.get("Is Transfer"))),
+            "transfer_details": str(course.get("transfer_details",
+                                               course.get("Transfer Details", ""))),
+            "status":       str(course.get("status",     course.get("Status", ""))),
         }
-        
-        # Parse courses
-        courses = json_data.get("Course Information", [])
-        for course in courses:
-            processed_course = {
-                "course_code": str(course.get("Course Code", "")),
-                "course_name": str(course.get("Course Name", "")),
-                "credits": _parse_credits(course.get("Credits")),
-                "grade": str(course.get("Grade", "")),
-                "term": str(course.get("Term", "")),
-                "year": str(course.get("Year", "")),
-                "is_transfer": _parse_bool(course.get("Is Transfer")),
-                "transfer_details": str(course.get("Transfer Details", "")),
-                "status": str(course.get("Status", ""))
-            }
-            
-            # Only add course if it has a course code or name
-            if processed_course["course_code"] or processed_course["course_name"]:
-                data["courses"].append(processed_course)
-        
-        return data
-    
-    except json.JSONDecodeError as e:
-        st.error(f"Invalid JSON: {str(e)}")
-        return None
-    except Exception as e:
-        st.error(f"Error parsing transcript data: {str(e)}")
-        return None
+
+        # keep only real courses
+        if processed["course_code"] or processed["course_name"]:
+            data["courses"].append(processed)
+
+    return data
 
 def _parse_credits(credits: Any) -> float:
     """

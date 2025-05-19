@@ -12,7 +12,7 @@ gcloud auth application-default set-quota-project $PROJECT
 gcloud config set project $PROJECT
 
 
-SERVICE_NAME="transfer-credits-app"
+SERVICE_NAME="transcript-app-v2"
 IMAGE="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 
 # Build the container image and submit it to Google Container Registry

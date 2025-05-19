@@ -3,11 +3,13 @@ from typing import List, Optional
 import time
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
-from .models import TranscriptData, CombinedTranscriptData
+from .models import Student,CombinedTranscriptData
 from .gemini_client import GeminiClient
 from .parsers import parse_transcript_data
+import pandas as pd
+import json
 
-def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -> List[TranscriptData]:
+def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -> List[Student]:
     """Process multiple PDF transcripts"""
     all_results = []
     
@@ -18,18 +20,16 @@ def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -
     
     return all_results
 
-def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional[TranscriptData]:
+def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional[Student]:
     """Process a single PDF transcript"""
     with st.spinner(f"Processing {pdf_file.name}..."):
         try:
             # Extract main transcript data
             pdf_content = pdf_file.read()
             result = client.process_transcript(pdf_content, pdf_file.name)
-            
             if not result:
                 st.warning(f"Failed to process {pdf_file.name}")
                 return None
-                
             parsed_data = parse_transcript_data(result)
             if not parsed_data:
                 st.warning(f"Could not parse data from {pdf_file.name}")
@@ -56,7 +56,7 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
             st.error(f"Error processing {pdf_file.name}: {str(e)}")
             return None
 
-def combine_transcript_data(all_results: List[TranscriptData]) -> Optional[CombinedTranscriptData]:
+def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTranscriptData]:
     """Combine data from multiple transcripts"""
     if not all_results:
         return None

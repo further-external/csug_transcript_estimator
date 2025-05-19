@@ -75,12 +75,7 @@ def render_review_tab(client):
     if st.button("Start Evaluation", key="evaluate_button"):
         with st.spinner("Evaluating transfer credits..."):
             try:
-                # Get program level from settings
-                program_level = st.session_state.get('settings', {}).get('program_level', 'undergraduate')
-                
-                # Create evaluator and process results
-                transfer_policy_pdf = st.session_state.get('settings', {}).get('policy_handbook_pdf')
-                evaluator = create_evaluator(client,program_level=program_level,transfer_policy_pdf=transfer_policy_pdf)
+                evaluator = create_evaluator(client)
                 evaluation_results = evaluator.evaluate_transcript(st.session_state.combined_data)
                 
                 # Store evaluation results and set flag
@@ -94,84 +89,6 @@ def render_review_tab(client):
     if st.session_state.evaluation_complete and hasattr(st.session_state, 'evaluation_results'):
         display_evaluation_results(st.session_state.evaluation_results)
 
-def render_settings_tab():
-    """Render the Settings tab content"""
-    st.header("Evaluation Settings")
-    
-    # Initialize settings in session state if not present
-    if 'settings' not in st.session_state:
-        st.session_state.settings = {
-            'program_level': 'undergraduate',
-            'max_elective_credits': 60.0,
-            'credit_age_limit_years': 10,
-            'min_grade_undergraduate': 'C-',
-            'min_grade_graduate': 'B-',
-            'max_major_transfer_percentage': 50.0
-        }
-    
-    # Program Level
-    st.session_state.settings['program_level'] = st.selectbox(
-        "Program Level",
-        options=['undergraduate', 'graduate'],
-        index=0 if st.session_state.settings['program_level'] == 'undergraduate' else 1
-    )
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Maximum Elective Credits
-        st.session_state.settings['max_elective_credits'] = st.number_input(
-            "Maximum Elective Credits",
-            min_value=0.0,
-            max_value=120.0,
-            value=float(st.session_state.settings['max_elective_credits']),
-            step=0.5
-        )
-        
-        # Credit Age Limit
-        st.session_state.settings['credit_age_limit_years'] = st.number_input(
-            "Credit Age Limit (Years)",
-            min_value=0,
-            max_value=20,
-            value=int(st.session_state.settings['credit_age_limit_years'])
-        )
-    
-    with col2:
-        # Minimum Grades
-        st.session_state.settings['min_grade_undergraduate'] = st.selectbox(
-            "Minimum Undergraduate Grade",
-            options=['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-'],
-            index=['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-'].index(
-                st.session_state.settings['min_grade_undergraduate']
-            )
-        )
-        
-        st.session_state.settings['min_grade_graduate'] = st.selectbox(
-            "Minimum Graduate Grade",
-            options=['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-'],
-            index=['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-'].index(
-                st.session_state.settings['min_grade_graduate']
-            )
-        )
-    
-    # Maximum Major Transfer Percentage
-    st.session_state.settings['max_major_transfer_percentage'] = st.slider(
-        "Maximum Major Transfer Percentage",
-        min_value=0.0,
-        max_value=100.0,
-        value=float(st.session_state.settings['max_major_transfer_percentage']),
-        step=5.0
-    )
-
-    st.session_state.settings['policy_handbook_pdf']= st.file_uploader(
-        "Upload Transfer Policy PDF (optional)",
-        type="pdf",
-        key="policy_pdf"
-    )
-
-    # Save settings button
-    if st.button("Save Settings"):
-        st.success("Settings saved successfully!")
 
 def main():
     st.title("Transcript Analyzer")
@@ -191,10 +108,9 @@ def main():
         return
 
     # Create main tabs
-    upload_tab, review_tab, settings_tab = st.tabs([
+    upload_tab, review_tab = st.tabs([
         "Upload & Process",
-        "Review & Evaluate",
-        "Settings"
+        "Review & Evaluate"
     ])
 
     # Render content for each tab
@@ -203,9 +119,6 @@ def main():
         
     with review_tab:
         render_review_tab(client)
-        
-    with settings_tab:
-        render_settings_tab()
 
 if __name__ == "__main__":
     main()

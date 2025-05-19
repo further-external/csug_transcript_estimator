@@ -1,112 +1,85 @@
 import streamlit as st
-import google.generativeai as genai
-from .models import TranscriptKeyData
-from typing import Dict
+from google import genai
+from google.genai import types
+from pathlib import Path
+import tempfile
 import json
 import logging
+from .models import Student, TranscriptKeyData
+from typing import Dict, Optional
 
 logging.basicConfig(level=logging.INFO)
 
 
 class GeminiClient:
-    def __init__(self):
-        self.llm = None
+    """
+    Gemini 2.x client using the **Google Gen AI** SDK.
+    """
+    #MODEL_NAME= "gemini-2.5-flash-preview-04-17"      # <— put the model you really need
+    MODEL_NAME = "gemini-2.5-pro-preview-05-06"      # <— put the model you really need
 
+    def __init__(self) -> None:
+        self.client: Optional[genai.Client] = None
+        self._base_config = types.GenerateContentConfig(
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=Student
+        )
+
+    # ---------- setup ----------
     def initialize(self) -> bool:
-        """Initialize the Gemini models"""
         try:
-            genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-            generation_config= genai.GenerationConfig(temperature=0, response_mime_type = "application/json")
-            self.llm = genai.GenerativeModel('gemini-2.0-pro-exp-02-05', generation_config=generation_config)
+            self.client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
             return True
         except Exception as e:
-            st.error(f"Error initializing Gemini: {str(e)}")
+            st.error(f"Gemini init error: {e}")
             return False
 
-    def process_transcript(self, pdf_content: bytes, filename: str) -> str:
-        """Process PDF with Gemini Vision API"""
+    # ---------- helpers ----------
+    def _upload_pdf(self, pdf_bytes: bytes) -> types.File:
+        """
+        Upload a PDF and return its File handle for the 'contents' list.
+        """
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = Path(tmp.name)
+
+        # Upload **once**; reuse the returned object for every call
+        return self.client.files.upload(file=str(tmp_path))
+
+    def _generate(self, prompt, file_or_part):
+        """
+        Wraps client.models.generate_content with default config.
+        """
+        return self.client.models.generate_content(
+            model=self.MODEL_NAME,
+            contents=[prompt, file_or_part],
+            config=self._base_config,
+        )
+    
+
+    # ---------- transcript processing ----------
+    def process_transcript(self, pdf_content: bytes, filename: str) -> str | None:
+        """
+        Extract course data from a transcript PDF.
+        """
         try:
             prompt = """
-            Extract ALL information from this transcript. If the data has watermark, please read grade, course code, course name, credits, grade, term, year, and transfer details carefully.
-            If it's examination like AP, make sure you to include exam name, grade and year taken  in the `Course Information` section.
-            
-            For transfer credits:
-            - Look for explicit mentions of "transfer", "transferred from", or similar phrases
-            - Check for course codes or prefixes from other institutions
-            - Look for any indicators in the transcript key that denote transfer credits
-            - Pay attention to different institution names listed with courses
-            
-            For course codes:
-            - Look for alphanumeric combinations in formats like:
-            * MATH1310 (letters followed directly by numbers)
-            * PEB 1138 (letters, space, then numbers)
-            * SPAN 1301 (subject code followed by course number)
-            - Course codes may appear before or after course names
-            - Some codes may have spaces between letters and numbers, others may not
-
-            For grades:
-            - Look for letter grades (A, B, C, D, F) with optional +/- modifiers
-            - Look for numerical grades (e.g., 4.0, 3.0)
-            - Look for special grades (P/Pass, CR/Credit, W/Withdrawn)
-            - Check for grades both after course details and in separate columns
-            - Grade may appear after course name or on a separate line. Make sure you read the grade completely and correctly.
-
-
-            For Year:
-            - Look for the year the course was taken
-            - Check for year after course details or in a separate column
-            - Year may appear after course name or on a separate line. Make sure you read the year completely and correctly.
-            - Year could be mentioned in the term as 16/FA which could mean 2016 Fall, extract 2016 as year
-
-            For Term:
-            - Look for the term the course was taken
-            - Check for term after course details or in a separate column
-            - Term may appear after course name or on a separate line. Make sure you read the term completely and correctly.
-            - Term could be mentioned in the term as 16/FA which could mean 2016 Fall, extract 'Fall' as term
-
-            
-            Format it EXACTLY as shown below in json format. Do not add any extra information or change the format.:
-
-            Student Information:
-            Name: [student name]
-            ID: [student id]
-            Program: [program name if available]
-
-            Institution Information:
-            Name: [institution name]
-            Location: [location]
-
-            Course Information:
-            [List every course with exactly this format, one course at a time:]
-            Course Code: [Extract full course code including both letters and numbers, maintaining original spacing/format (e.g., "MATH1310" or "PEB 1138")]
-            Course Name: [full course name]
-            Credits: [number]
-            Grade: [grade]
-            Status: [status if available, e.g., "Active", "In Progress", "Withdrawn"]
-            Term: [term if available]
-            Year: [year if available]
-            Is Transfer: [True if any of the courses listed on the transcripts are transferred from other institutions.
-            You can use following conditions to verify if the course is transferred:
-                         1. Course is explicitly marked as transferred
-                         2. Course is from a different institution
-                         3. Course has transfer credit indicators
-                         4. Course appears in a transfer credit section
-                         Otherwise, write False]
-            Transfer Details: [transfer_details If the following condition is "True", include the source institution or program (e.g., "Transferred from XYZ College", "AP Credit"). Leave empty if not a transfer]
-
-    
+            Extract the student, institution, and every course from this transcript PDF.
+            Populate all required fields; leave optional ones null if unknown.
             """
-            
-            response = self.llm.generate_content(
-                [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
-            )
-            
-            return response.text
-            
+            pdf_file = self._upload_pdf(pdf_content)
+            resp = self._generate(prompt, pdf_file)
+            if not resp.text:
+                st.error("Gemini returned empty or invalid JSON")
+                logging.warning(resp.text)          # raw text for debugging
+                return None
+            return resp.text           # JSON as string
+
         except Exception as e:
-            st.error(f"Error processing {filename}: {str(e)}")
+            st.error(f"Error processing {filename}: {e}")
             return None
-        
+
     def extract_transcript_key(self, pdf_content: bytes, institution_name: str) -> TranscriptKeyData:
         """Extract transcript key information using Gemini Vision"""
         if not institution_name:
@@ -132,12 +105,11 @@ class GeminiClient:
             Term Definitions:
             [List all academic terms and their definitions]
             """
+
+            pdf_file = self._upload_pdf(pdf_content)
+            resp = self._generate(prompt, pdf_file)
             
-            response = self.llm.generate_content(
-                [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
-            )
-            
-            key_data = self._parse_transcript_key(response.text)
+            key_data = self._parse_transcript_key(resp.text)
             key_data["source_institution"] = institution_name
             
             return key_data
@@ -201,80 +173,3 @@ class GeminiClient:
             cleaned_line = line.lstrip("•-*").strip()
             if cleaned_line:
                 key_data[section].append(cleaned_line)
-
-
-    def extract_policy_handbook(self, pdf_content: bytes) -> str:
-        """Extract policy text from PDF using Gemini Vision"""
-        try:
-            prompt = """
-            Extract the transfer credit policy text from this PDF. Focus on sections that discuss transferability, eligibility, and any specific conditions or clauses.
-            Ensure to include all relevant details that would help in determining transfer credit eligibility. Ensure all rules are captured in the text.
-            """
-            
-            response = self.llm.generate_content(
-                [prompt, {"mime_type": "application/pdf", "data": pdf_content}]
-            )
-            return response.text
-            
-        except Exception as e:
-            st.error(f"Error extracting policy text: {str(e)}")
-            return None
-        
-    
-def verify_with_policy_handbook(self, course_info: Dict, policy_text: str) -> Dict:
-    # Construct a detailed prompt for Gemini
-    prompt = f"""
-    Please analyze the evaluation once with the transfer policy handbook provided below.:
-    1. Is this course eligible for transfer based on the policy?
-    2. What specific policy clauses support or reject the transfer?
-    3. Provide a confidence score for the recommendation (0-100%)
-
-    Course Details:
-    - Course Name: {course_info.get('course_name', 'N/A')}
-    - Course Code: {course_info.get('course_code', 'N/A')}
-    - Institution: {course_info.get('source_institution', 'N/A')}
-    - Year: {course_info.get('year', 'N/A')}
-    - Term: {course_info.get('term', 'N/A')}
-    - Grade/Status: {course_info.get('grade', course_info.get('status', 'N/A'))}
-
-
-    
-    Respond ONLY in this exact JSON format:
-        {
-            "is_transferable": true,
-            "supporting_clauses": ["Clause describing why the course is transferable"],
-            "confidence_score": 85,
-            "additional_notes": "Explanation of transfer decision"
-        }
-
-    Here's the Transfer Policy Text for reference:
-    {policy_text} 
-    """
-
-    try:
-        logging.info(prompt)
-        verification_result = self.llm.generate_content(prompt)
-        verification_json_str = verification_result.text
-    
-        verification_json = json.loads(verification_json_str)
-
-        return {
-            "transfer_policy_verified": True,
-            "is_transferable": verification_json.get('is_transferable', False),
-            "supporting_clauses": verification_json.get('supporting_clauses', []),
-            "confidence_score": verification_json.get('confidence_score', 0),
-            "additional_notes": verification_json.get('additional_notes', '')
-        }
-    except json.JSONDecodeError as jde:
-        print(f"JSON Parsing error in policy verification: {jde}")
-        return {
-            "transfer_policy_verified": False,
-            "error": f"JSON parsing error: {str(jde)}",
-            "raw_response": verification_result.text
-        }
-    except Exception as e:
-        print(f"Error in policy verification: {e}")
-        return {
-            "transfer_policy_verified": False,
-            "error": str(e)
-        }

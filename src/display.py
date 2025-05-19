@@ -6,8 +6,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape,letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from .models import TranscriptKeyData
 from io import BytesIO
+from .models import TranscriptKeyData
 
 CREDIT_CATEGORIES = [
     "General Education", 
@@ -60,8 +60,7 @@ def generate_pdf(data: Dict) -> bytes:
     if courses:
         # Include all fields from the DataFrame
         headers = [
-            'Course Code', 'Course Name', 'Credits', 'Grade', 'Credit Category',
-            'Term', 'Year', 'Is Transfer', 'Transfer Details', 
+            'Course Code', 'Course Name', 'Credits', 'Grade', 'Credit Category', 'Year', 'Is Transfer', 'Transfer Details', 
             'Source Institution', 'Source File', 'Notes'
         ]
         
@@ -73,7 +72,6 @@ def generate_pdf(data: Dict) -> bytes:
                 str(course.get('credits', '')),
                 str(course.get('grade', '')),
                 str(course.get('credit_category', 'Not Applicable')),
-                str(course.get('term', '')),
                 str(course.get('year', '')),
                 'Yes' if course.get('is_transfer') else 'No',
                 str(course.get('transfer_details', '')),
@@ -138,8 +136,8 @@ def display_evaluation_results(evaluation_results: Dict):
     summary = evaluation_results.get('summary', {})
     col1, col2, col3 = st.columns(3)
     
-    total_attempted = summary.get('total_credits_attempted', 0)
-    total_accepted = summary.get('total_credits_accepted', 0)
+    total_attempted = summary.get('total_courses', 0)
+    total_accepted = summary.get('transferable_courses', 0)
     
     with col1:
         st.metric("Total Credits Attempted", f"{total_attempted:.1f}")
@@ -157,18 +155,6 @@ def display_evaluation_results(evaluation_results: Dict):
         courses_data = []
         for course in evaluation_results['evaluated_courses']:
             course_entry = course.copy()
-            
-            # Add policy verification details
-            policy_ver = course.get('transfer_policy_verification', {})
-            course_entry['transfer_policy_verified'] = (
-                '✅ Verified' if policy_ver.get('transfer_policy_verified') 
-                else '❌ Not Verified'
-            )
-            course_entry['policy_confidence'] = policy_ver.get('confidence_score', 'N/A')
-            course_entry['policy_supporting_clauses'] = ', '.join(
-                policy_ver.get('supporting_clauses', [])
-            )
-            
             courses_data.append(course_entry)
         
         # Create DataFrame
@@ -185,9 +171,7 @@ def display_evaluation_results(evaluation_results: Dict):
         st.dataframe(
             df[[
                 'course_code', 'course_name', 'credits', 
-                'grade', 'status', 'rejection_reasons',
-                'transfer_policy_verified', 'policy_confidence', 
-                'policy_supporting_clauses'
+                'grade', 'status', 'rejection_reasons'
             ]],
             use_container_width=True,
             hide_index=True,
@@ -215,113 +199,10 @@ def display_evaluation_results(evaluation_results: Dict):
                 'rejection_reasons': st.column_config.TextColumn(
                     'Issues',
                     width='large'
-                ),
-                'transfer_policy_verified': st.column_config.TextColumn(
-                    'Policy Verification',
-                    width='medium'
-                ),
-                'policy_confidence': st.column_config.TextColumn(
-                    'Confidence',
-                    width='small'
-                ),
-                'policy_supporting_clauses': st.column_config.TextColumn(
-                    'Supporting Policy Clauses',
-                    width='large'
                 )
-            }
-        )
-
-    # Policy Verification Summary
-    policy_summary = summary.get('policy_verification_summary', {})
-    if policy_summary.get('total_verified_courses', 0) > 0:
-        st.subheader("Policy Verification Insights")
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric(
-                "Total Verified Courses", 
-                policy_summary.get('total_verified_courses', 0)
-            )
-        with col2:
-            st.metric(
-                "Policy Exceptions", 
-                policy_summary.get('total_policy_exceptions', 0)
-            )
-        with col3:
-            exception_rate = (
-                policy_summary.get('total_policy_exceptions', 0) / 
-                policy_summary.get('total_verified_courses', 1) * 100
-            )
-            st.metric("Exception Rate", f"{exception_rate:.1f}%")
+            })
         
-        # Detailed Policy Verification
-        if policy_summary.get('verified_courses_details'):
-            st.subheader("Detailed Policy Verification")
-            
-            for course_detail in policy_summary['verified_courses_details']:
-                with st.expander(f"{course_detail['course_code']} - {course_detail.get('course_name', 'Unknown')}"):
-                    # Transferability Status
-                    status_color = "green" if course_detail['is_transferable'] else "red"
-                    st.markdown(f"**Transferability:** <span style='color:{status_color}'>{'Transferable' if course_detail['is_transferable'] else 'Not Transferable'}</span>", unsafe_allow_html=True)
-                    
-                    # Confidence Score
-                    st.write(f"**Confidence Score:** {course_detail.get('confidence_score', 'N/A')}")
-                    
-                    # Supporting Policy Clauses
-                    if course_detail.get('supporting_clauses'):
-                        st.markdown("**Supporting Policy Clauses:**")
-                        for clause in course_detail['supporting_clauses']:
-                            st.markdown(f"- {clause}")
-                    
-                    # Additional Notes
-                    if course_detail.get('additional_notes'):
-                        st.info(f"**Additional Notes:** {course_detail['additional_notes']}")
-
-    # Rejected Courses Section
-    rejected_courses = summary.get('rejected_courses', [])
-    if rejected_courses:
-        st.subheader("Rejected Courses Details")
-        
-        # Reason explanations
-        reason_explanations = {
-            'Grade or status below requirement': """
-                Course grade does not meet minimum requirements:
-                - Undergraduate: Minimum grade of C-
-                - Graduate: Minimum grade of B-
-                Demonstrates insufficient mastery of subject matter.
-            """,
-            'Credits exceed age limit': """
-                Course completed outside acceptable timeframe:
-                - Typically within 10 years for relevance
-                - Ensures currency of knowledge
-                Older credits may require additional review
-            """,
-            'Failed policy verification': """
-                Course did not meet specific institutional transfer policies:
-                - Content may not align with program requirements
-                - Insufficient course equivalency
-                - Specialized policy constraints
-            """
-        }
-        
-        for course in rejected_courses:
-            with st.expander(f"{course['course_code']} - {course['course_name']}"):
-                for reason in course.get('reasons', []):
-                    st.markdown(f"**Issue:** {reason}")
-                    if explanation := reason_explanations.get(reason):
-                        st.markdown("**Explanation:**")
-                        st.markdown(explanation.strip())
-                    st.markdown("---")
-                
-                st.info("""
-                    Appeal Process:
-                    1. Submit comprehensive documentation
-                    2. Provide detailed course syllabus
-                    3. Request formal grade clarification
-                    4. Demonstrate course equivalency
-                """)
-    else:
-        st.success("No courses were rejected during the transfer evaluation.")
 
 def validate_course(course):
     """Validate course data and return any issues"""
@@ -385,9 +266,6 @@ def display_combined_results(data: Dict):
                     "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "S",
                     "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
                 ]
-                
-                # Define term options
-                term_options = ["Fall", "Winter", "Spring", "Summer"]
 
                 # Convert is_transfer to boolean
                 courses_df['is_transfer'] = courses_df['is_transfer'].fillna(True)
@@ -423,12 +301,6 @@ def display_combined_results(data: Dict):
                             help="Course grade",
                             options=grade_options,
                             required=True,
-                        ),
-                        "term": st.column_config.SelectboxColumn(
-                            "Term",
-                            help="Academic term",
-                            options=term_options,
-                            required=False,
                         ),
                         "year": st.column_config.TextColumn(
                             "Year",
@@ -530,33 +402,6 @@ def display_combined_results(data: Dict):
             st.json(data)
         return None
 
-def display_transcript_key(transcript_keys: List[TranscriptKeyData]):
-    """Display transcript key information"""
-    if not transcript_keys:
-        st.info("No transcript key information available")
-        return
-        
-    # Filter out transcript keys that don't have a source institution
-    valid_keys = [key for key in transcript_keys if key.get("source_institution")]
-    
-    if not valid_keys:
-        st.warning("No valid transcript keys found with institution information")
-        return
-        
-    # Create tabs for different institutions if multiple keys exist
-    if len(valid_keys) > 1:
-        tab_titles = [key["source_institution"] for key in valid_keys]
-        tabs = st.tabs(tab_titles)
-        
-        # Display each institution's key in its tab
-        for key_data, tab in zip(valid_keys, tabs):
-            with tab:
-                display_institution_key(key_data)
-    else:
-        # Single institution - use container
-        with st.container():
-            display_institution_key(valid_keys[0])
-
 def display_institution_key(key_data: TranscriptKeyData):
     """Display transcript key information for a single institution"""
     
@@ -576,14 +421,6 @@ def display_institution_key(key_data: TranscriptKeyData):
             )
             st.dataframe(grade_df, hide_index=True)
         
-        # Term Definitions
-        if key_data.get("term_definitions"):
-            st.write("##### Term Definitions")
-            term_df = pd.DataFrame(
-                [(k, v) for k, v in key_data["term_definitions"].items()],
-                columns=["Term", "Definition"]
-            )
-            st.dataframe(term_df, hide_index=True)
     
     with col2:
         # Credit Definitions
