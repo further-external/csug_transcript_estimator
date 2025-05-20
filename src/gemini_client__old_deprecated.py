@@ -141,7 +141,7 @@ class GeminiClient:
             config=self.generate_config,
             )
                 
-            
+            st.write(response.text)
             key_data = self._parse_transcript_key(response.text)
             key_data["source_institution"] = institution_name
             

@@ -22,7 +22,7 @@ def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -
 
 def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional[Student]:
     """Process a single PDF transcript"""
-    with st.spinner(f"Processing {pdf_file.name}..."):
+    with st.spinner(f"Currently Processing {pdf_file.name}..."):
         try:
             # Extract main transcript data
             pdf_content = pdf_file.read()
@@ -36,6 +36,7 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
                 return None
                 
             parsed_data['source_file'] = pdf_file.name
+            #st.write(parsed_data)
             institution_name = parsed_data.get('institution_info', {}).get('name')
             
             if institution_name:
@@ -124,7 +125,6 @@ def add_course_data(combined_data: dict, courses: list,
                 "course_name": course.get("course_name", ""),
                 "credits": float(str(course.get("credits", "0")).replace(",", "").split()[0]),
                 "grade": course.get("grade", ""),
-                "term": course.get("term", ""),
                 "year": course.get("year", ""),
                 "is_transfer": course.get("is_transfer", False),
                 "transfer_details": course.get("transfer_details",""),

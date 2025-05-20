@@ -43,14 +43,10 @@ class TransferCreditEvaluator:
         The rules are intentionally simple and map directly to the catalog
         language supplied by Admissions:
 
-        * **Undergraduate programs** → C‑ / 70 % or better  
-        * **Graduate programs**      → B‑ or better  
-        * Grades below the threshold → **Reject**  
-        * Institutional grades of **S**, **P** or **CR** may be accepted *when*
-          the transcript key confirms they represent at least a C/70 % or higher
-          at the sending institution.  Because we do not (yet) parse the
-          transcript key, these grades are provisionally treated as acceptable
-          and flagged for manual verification upstream.
+        Transfer Grade Requirements:
+        IF grade is C-/70% or higher (Undergraduate) or B- or higher (Graduate) → proceed.
+        IF grade is lower → reject credit.
+        IF grade is S, P or  CR from a traditional institution and the transcript key states that they are equivalent to C/70% or higher, it can be considered for transfer
 
         Args:
             grade: The raw grade value exactly as it appears on the transcript.
@@ -77,20 +73,6 @@ class TransferCreditEvaluator:
         # Helper to obtain the numeric cut‑off for the relevant program level.
         min_letter = self.config.min_grade_undergraduate
         min_value = self._grade_values.get(min_letter, 0.0)
-
-        # 3. Handle explicit percentages – e.g. "85%" or "79".
-        try:
-            # Remove a trailing % if present.
-            percent = float(grade_clean.replace('%', ''))
-            # Treat values up to 4.0 as GPA; otherwise percentage.
-            if percent <= 4.0:
-                # GPA scale (0‑4).  Compare to the minimum letter value.
-                return percent >= min_value
-            else:
-                return percent >= 70.0  # Policy floor for both UG & GR percentages.
-        except ValueError:
-            # Not a pure numeric grade – fall through to letter evaluation.
-            pass
 
         # 4. Letter grades – map to 4‑point scale and compare.
         course_value = self._grade_values.get(grade_clean, -1.0)
@@ -128,16 +110,24 @@ class TransferCreditEvaluator:
         evaluated_courses = [self.evaluate_course(course) for course in transcript_data.get('courses', [])]
 
         summary = {
-            'total_courses': len(evaluated_courses),
-            'transferable_courses': sum(course['transferable'] for course in evaluated_courses),
-            'rejected_courses': sum(not course['transferable'] for course in evaluated_courses),
-            'rejection_reasons_summary': {},
+            'total_credits': sum(course['credits'] for course in evaluated_courses),        
+            'total_transferable_credits': sum(                           # NEW – sum of credits
+                course['credits'] for course in evaluated_courses
+                if course['transferable']
+            ),
+            'total_rejected_credits': sum(
+                course['credits'] for course in evaluated_courses
+                if not course['transferable']
+            ),
+            # optional: keep a raw count too
+            'transferable_courses': sum(
+                1 for course in evaluated_courses if course['transferable']
+            ),
+            'rejected_courses': sum(
+                1 for course in evaluated_courses if not course['transferable']
+            ),
+          
         }
-
-        # Aggregate rejection reasons
-        for course in evaluated_courses:
-            for reason in course['rejection_reasons']:
-                summary['rejection_reasons_summary'][reason] = summary['rejection_reasons_summary'].get(reason, 0) + 1
 
         return {
             'evaluated_courses': evaluated_courses,

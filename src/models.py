@@ -42,32 +42,3 @@ class CombinedTranscriptData(BaseModel):
     total_transfer_credits: float = Field(
         ..., ge=0, description="Sum of credits that came in as transfer"
     )
-
-class TranscriptKeyData(BaseModel):
-    """
-    Canonical schema for transcript‑wide reference data
-    (grading scales, credit definitions, etc.).
-    """
-    source_institution: str = Field(..., description="Name of the institution that issued the key/legend.")
-    grade_scales: Dict[str, str] = Field(default_factory=dict,description="Mapping of grade symbols (e.g. 'A+') → plain‑language meanings or numeric values."
-    )
-    credit_definitions: List[str] = Field(
-        default_factory=list,
-        description="Sentences/clauses that explain how credits are awarded."
-    )
-    special_notations: List[str] = Field(
-        default_factory=list,
-        description="Text explaining symbols such as '*' or '†' that appear next to courses or grades."
-    )
-    transfer_indicators: List[str] = Field(
-        default_factory=list,
-        description="List of the symbols/phrases that mark courses accepted in transfer."
-    )
-    term_definitions: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Mapping of term codes (e.g. 'FA', 'SP‑7W1') → human‑readable descriptions."
-    )
-
-    class Config:
-        extra = "forbid"          # reject unknown fields
-        frozen = True             # instances are (hashable) read‑only

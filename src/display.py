@@ -7,7 +7,7 @@ from reportlab.lib.pagesizes import landscape,letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from io import BytesIO
-from .models import TranscriptKeyData
+
 
 CREDIT_CATEGORIES = [
     "General Education", 
@@ -87,7 +87,6 @@ def generate_pdf(data: Dict) -> bytes:
             35,   # Credits
             35,   # Grade
             70,   # Credit Category
-            45,   # Term
             35,   # Year
             45,   # Is Transfer
             90,   # Transfer Details
@@ -136,15 +135,19 @@ def display_evaluation_results(evaluation_results: Dict):
     summary = evaluation_results.get('summary', {})
     col1, col2, col3 = st.columns(3)
     
-    total_attempted = summary.get('total_courses', 0)
+    total_courses = summary.get('total_courses', 0)
     total_accepted = summary.get('transferable_courses', 0)
+    total_credits = summary.get('total_credits', 0)
+    total_accepted_credits = summary.get('total_transferable_credits', 0)
+    total_rejected_credits = summary.get('total_rejected_credits', 0)
+
     
     with col1:
-        st.metric("Total Credits Attempted", f"{total_attempted:.1f}")
+        st.metric("Total Credits Attempted", f"{total_credits:.1f}")
     with col2:
-        st.metric("Total Credits Accepted", f"{total_accepted:.1f}")
+        st.metric("Total Credits Accepted", f"{total_accepted_credits:.1f}")
     with col3:
-        acceptance_rate = (total_accepted / total_attempted * 100) if total_attempted > 0 else 0.0
+        acceptance_rate = (total_accepted_credits / total_credits * 100) if total_credits > 0 else 0.0
         st.metric("Credit Acceptance Rate", f"{acceptance_rate:.1f}%")
 
     # Display evaluated courses
@@ -221,7 +224,7 @@ def validate_course(course):
     if credits and (credits < 0 or credits > 12):
         notes.append("Unusual credits")
     
-    valid_grades = ["A", "A-", "B+", "B", "B-", "C+", "C", "C-", 
+    valid_grades = ["A", "A-", "A+", "B+", "B", "B-", "C+", "C", "C-", 
                    "D+", "D", "D-", "F", "P", "NP", "W", "I"]
     if course.get('grade') and course['grade'] not in valid_grades:
         notes.append("Non-standard grade")
@@ -233,7 +236,7 @@ def display_combined_results(data: Dict):
     try:
         
         # Create tabs for different sections of the display
-        tabs = st.tabs(["Student & Course Info", "Transcript Key", "Basic Statistics"])
+        tabs = st.tabs(["Student & Course Info", "Transcript Key"])
         
         with tabs[0]:
             # Display student information
@@ -263,7 +266,7 @@ def display_combined_results(data: Dict):
                 
                 # Define grade options
                 grade_options = [
-                    "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "S",
+                    "A", "A-","A+", "B+", "B", "B-", "C+", "C", "C-", "S", "CR",
                     "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
                 ]
 
@@ -364,22 +367,7 @@ def display_combined_results(data: Dict):
             else:
                 st.info("No transcript key information available")
                 
-        with tabs[2]:
-            # Display basic statistics
-            st.header("Basic Statistics")
-            col1, col2 = st.columns(2)
-            
-            # Calculate statistics based on edited_df if available
-            if 'edited_df' in locals():
-                with col1:
-                    st.metric("Total Courses", len(edited_df))
-                    st.metric("Total Credits", f"{edited_df['credits'].sum():.1f}")
-                with col2:
-                    transfer_courses = len(edited_df[edited_df['is_transfer'] == True])
-                    transfer_credits = edited_df[edited_df['is_transfer'] == True]['credits'].sum()
-                    st.metric("Transfer Courses", transfer_courses)
-                    st.metric("Transfer Credits", f"{transfer_credits:.1f}")
-            
+
 
         if st.button("Generate PDF"):
             pdf_data = generate_pdf({
@@ -402,41 +390,11 @@ def display_combined_results(data: Dict):
             st.json(data)
         return None
 
-def display_institution_key(key_data: TranscriptKeyData):
+def display_institution_key(key_data):
     """Display transcript key information for a single institution"""
     
     # Display institution name
     st.subheader(f"{key_data['source_institution']} Grading System")
+    st.write(key_data)
     
-    # Create columns for different types of information
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Grade Scales
-        if key_data.get("grade_scales"):
-            st.write("##### Grade Scales")
-            grade_df = pd.DataFrame(
-                [(k, v) for k, v in key_data["grade_scales"].items()],
-                columns=["Grade", "Definition"]
-            )
-            st.dataframe(grade_df, hide_index=True)
-        
-    
-    with col2:
-        # Credit Definitions
-        if key_data.get("credit_definitions"):
-            st.write("##### Credit Definitions")
-            for definition in key_data["credit_definitions"]:
-                st.write(f"• {definition}")
-        
-        # Special Notations
-        if key_data.get("special_notations"):
-            st.write("##### Special Notations")
-            for notation in key_data["special_notations"]:
-                st.write(f"• {notation}")
-        
-        # Transfer Indicators
-        if key_data.get("transfer_indicators"):
-            st.write("##### Transfer Credit Indicators")
-            for indicator in key_data["transfer_indicators"]:
-                st.write(f"• {indicator}")
+   
