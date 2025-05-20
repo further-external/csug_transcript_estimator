@@ -39,17 +39,6 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
             #st.write(parsed_data)
             institution_name = parsed_data.get('institution_info', {}).get('name')
             
-            if institution_name:
-                # Extract transcript key
-                pdf_file.seek(0)
-                key_data = client.extract_transcript_key(
-                    pdf_content=pdf_file.read(),
-                    institution_name=institution_name
-                )
-                
-                if key_data:
-                    parsed_data['transcript_key'] = key_data
-            
             time.sleep(0.5)
             return parsed_data
             
@@ -66,7 +55,6 @@ def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTran
         "student_info": all_results[0].get("student_info", {}),
         "institutions": [],
         "courses": [],
-        "transcript_keys": [],
         "total_credits": 0,
         "total_transfer_credits": 0
     }
@@ -83,7 +71,6 @@ def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTran
                 combined_data, 
                 institution, 
                 institution_name, 
-                result.get("transcript_key"),
                 seen_institutions
             )
             
@@ -98,16 +85,12 @@ def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTran
     return combined_data
 
 def add_institution_data(combined_data: dict, institution: dict, 
-                        institution_name: str, transcript_key: dict, 
+                        institution_name: str, 
                         seen_institutions: set):
-    """Add institution and transcript key data to combined results"""
+    """Add institution to combined results"""
     seen_institutions.add(institution_name)
     combined_data["institutions"].append(institution)
-    
-    if transcript_key:
-        if institution_name != transcript_key.get("source_institution"):
-            transcript_key["source_institution"] = institution_name
-        combined_data["transcript_keys"].append(transcript_key)
+
 
 def add_course_data(combined_data: dict, courses: list, 
                     institution_name: str, source_file: str,

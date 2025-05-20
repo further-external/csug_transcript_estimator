@@ -234,138 +234,113 @@ def validate_course(course):
 def display_combined_results(data: Dict):
     """Display combined results with evaluation"""
     try:
-        
-        # Create tabs for different sections of the display
-        tabs = st.tabs(["Student & Course Info", "Transcript Key"])
-        
-        with tabs[0]:
             # Display student information
-            st.header("Student Information")
-            if data.get("student_info"):
-                student_df = pd.DataFrame([data["student_info"]])
-                st.dataframe(student_df)
-            else:
-                st.warning("No student information found")
+        st.header("Student Information")
+        if data.get("student_info"):
+            student_df = pd.DataFrame([data["student_info"]])
+            st.dataframe(student_df)
+        else:
+            st.warning("No student information found")
 
-            # Display institutions
-            st.header("Institutions")
-            if data.get("institutions"):
-                institutions_df = pd.DataFrame(data["institutions"])
-                st.dataframe(institutions_df)
-            else:
-                st.warning("No institution information found")
+        # Display institutions
+        st.header("Institutions")
+        if data.get("institutions"):
+            institutions_df = pd.DataFrame(data["institutions"])
+            st.dataframe(institutions_df)
+        else:
+            st.warning("No institution information found")
 
-            # Display courses
-            st.header("All Courses")
-            if data.get("courses"):
-                courses_df = pd.DataFrame(data["courses"])
-                courses_df['notes'] = courses_df.apply(validate_course, axis=1)
+        # Display courses
+        st.header("All Courses")
+        if data.get("courses"):
+            courses_df = pd.DataFrame(data["courses"])
+            courses_df['notes'] = courses_df.apply(validate_course, axis=1)
 
-                if 'credit_category' not in courses_df.columns:
-                    courses_df['credit_category'] = 'Not Applicable'
-                
-                # Define grade options
-                grade_options = [
-                    "A", "A-","A+", "B+", "B", "B-", "C+", "C", "C-", "S", "CR",
-                    "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
-                ]
+            if 'credit_category' not in courses_df.columns:
+                courses_df['credit_category'] = 'Not Applicable'
+            
+            # Define grade options
+            grade_options = [
+                "A", "A-","A+", "B+", "B", "B-", "C+", "C", "C-", "S", "CR",
+                "D+", "D", "D-", "F", "P", "NP", "W", "I", 1, 2, 3, 4, 5
+            ]
 
-                # Convert is_transfer to boolean
-                courses_df['is_transfer'] = courses_df['is_transfer'].fillna(True)
-                courses_df['is_transfer'] = courses_df['is_transfer'].apply(lambda x: bool(x) if isinstance(x, (bool, int)) else x.lower() == 'true' if isinstance(x, str) else False)
+            # Convert is_transfer to boolean
+            courses_df['is_transfer'] = courses_df['is_transfer'].fillna(True)
+            courses_df['is_transfer'] = courses_df['is_transfer'].apply(lambda x: bool(x) if isinstance(x, (bool, int)) else x.lower() == 'true' if isinstance(x, str) else False)
+            
+            edited_df = st.data_editor(
+                courses_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config={
+                    "course_code": st.column_config.TextColumn(
+                        "Course Code",
+                        help="The course code/number",
+                        required=True,
+                    ),
+                    "course_name": st.column_config.TextColumn(
+                        "Course Name",
+                        help="The full name of the course",
+                        required=True,
+                    ),
+                    "credits": st.column_config.NumberColumn(
+                        "Credits",
+                        help="Number of credits",
+                        min_value=0,
+                        max_value=12,
+                        step=0.5,
+                        required=True,
+                        format="%.1f",
+                    ),
+                    "credit_category": st.column_config.SelectboxColumn("Credit Category", help="Category of credit", options=CREDIT_CATEGORIES, required=True),
+                    "grade": st.column_config.SelectboxColumn(
+                        "Grade",
+                        help="Course grade",
+                        options=grade_options,
+                        required=True,
+                    ),
+                    "year": st.column_config.TextColumn(
+                        "Year",
+                        help="Academic year",
+                        required=False,
+                    ),
+                    "is_transfer": st.column_config.CheckboxColumn(
+                        "Is Transfer",
+                        help="Is this a transfer course?",
+                        default=False,
+                    ),
+                        "transfer_details": st.column_config.TextColumn(
+                        "Transfer Details",
+                        help="Transfer Details",
+                    ),
+                    "source_institution": st.column_config.TextColumn(
+                        "Institution",
+                        help="Source institution",
+                        required=False,
+                    ),
+                    "source_file": st.column_config.TextColumn(
+                        "Source File",
+                        help="Original transcript file",
+                        required=False,
+                    ),
+                    "notes": st.column_config.TextColumn(
+                        "Validation Notes",
+                        help="Data quality issues",
+                        required=False,
+                    ),
+                        "status": st.column_config.TextColumn(
+                        "Status",
+                        help="Status",
+                        required=False,
+                    ),
+                },
+                hide_index=True,
+            )
+            issues = edited_df[edited_df['notes'] != "✓"]
+            if not issues.empty:
+                st.warning(f"Found {len(issues)} courses with data quality issues")
                 
-                edited_df = st.data_editor(
-                    courses_df,
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    column_config={
-                        "course_code": st.column_config.TextColumn(
-                            "Course Code",
-                            help="The course code/number",
-                            required=True,
-                        ),
-                        "course_name": st.column_config.TextColumn(
-                            "Course Name",
-                            help="The full name of the course",
-                            required=True,
-                        ),
-                        "credits": st.column_config.NumberColumn(
-                            "Credits",
-                            help="Number of credits",
-                            min_value=0,
-                            max_value=12,
-                            step=0.5,
-                            required=True,
-                            format="%.1f",
-                        ),
-                        "credit_category": st.column_config.SelectboxColumn("Credit Category", help="Category of credit", options=CREDIT_CATEGORIES, required=True),
-                        "grade": st.column_config.SelectboxColumn(
-                            "Grade",
-                            help="Course grade",
-                            options=grade_options,
-                            required=True,
-                        ),
-                        "year": st.column_config.TextColumn(
-                            "Year",
-                            help="Academic year",
-                            required=False,
-                        ),
-                        "is_transfer": st.column_config.CheckboxColumn(
-                            "Is Transfer",
-                            help="Is this a transfer course?",
-                            default=False,
-                        ),
-                         "transfer_details": st.column_config.TextColumn(
-                            "Transfer Details",
-                            help="Transfer Details",
-                        ),
-                        "source_institution": st.column_config.TextColumn(
-                            "Institution",
-                            help="Source institution",
-                            required=False,
-                        ),
-                        "source_file": st.column_config.TextColumn(
-                            "Source File",
-                            help="Original transcript file",
-                            required=False,
-                        ),
-                        "notes": st.column_config.TextColumn(
-                            "Validation Notes",
-                            help="Data quality issues",
-                            required=False,
-                        ),
-                          "status": st.column_config.TextColumn(
-                            "Status",
-                            help="Status",
-                            required=False,
-                        ),
-                    },
-                    hide_index=True,
-                )
-                issues = edited_df[edited_df['notes'] != "✓"]
-                if not issues.empty:
-                    st.warning(f"Found {len(issues)} courses with data quality issues")
-                
-        with tabs[1]:
-            # Display transcript key information
-            st.header("Transcript Key Information")
-            if data.get("transcript_keys"):
-                # Filter out transcript keys that don't have a source institution
-                valid_keys = [key for key in data["transcript_keys"] if key.get("source_institution")]
-                
-                if valid_keys:
-                    # Create tabs for different institutions
-                    tab_titles = [key["source_institution"] for key in valid_keys]
-                    institution_tabs = st.tabs(tab_titles)
-                    
-                    # Display each institution's key in its tab
-                    for key_data, tab in zip(valid_keys, institution_tabs):
-                        with tab:
-                            display_institution_key(key_data)
-                else:
-                    st.warning("No valid transcript keys found with institution information")
-            else:
-                st.info("No transcript key information available")
                 
 
 
@@ -390,11 +365,6 @@ def display_combined_results(data: Dict):
             st.json(data)
         return None
 
-def display_institution_key(key_data):
-    """Display transcript key information for a single institution"""
-    
-    # Display institution name
-    st.subheader(f"{key_data['source_institution']} Grading System")
-    st.write(key_data)
+
     
    
