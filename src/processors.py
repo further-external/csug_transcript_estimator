@@ -26,7 +26,9 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
         try:
             # Extract main transcript data
             pdf_content = pdf_file.read()
-            result = client.process_transcript(pdf_content, pdf_file.name)
+
+            prompt =  st.session_state.custom_prompt or None
+            result = client.process_transcript(pdf_content, prompt)
             if not result:
                 st.warning(f"Failed to process {pdf_file.name}")
                 return None

@@ -1,84 +1,95 @@
-import streamlit as st
-from google import genai
-from google.genai import types
-from pathlib import Path
-import tempfile
+
+from __future__ import annotations
+
 import json
 import logging
-from .models import Student
-from typing import Dict, Optional
+import tempfile
+from pathlib import Path
+from typing import Optional
 
-logging.basicConfig(level=logging.INFO)
+from google import genai
+from google.genai import types
+
+from .models import Student  # your Pydantic model
+import streamlit as st
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class GeminiClient:
-    """
-    Gemini 2.x client using the **Google Gen AI** SDK.
-    """
-    #MODEL_NAME= "gemini-2.5-flash-preview-04-17"      # <— put the model you really need
-    MODEL_NAME = "gemini-2.5-pro-preview-05-06"      # <— put the model you really need
+    """Lightweight Gemini 2.x client."""
 
-    def __init__(self) -> None:
-        self.client: Optional[genai.Client] = None
+    DEFAULT_MODEL = "models/gemini-2.5-pro-preview-05-06"
+
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str | None = None,
+        temperature: float = 0.0,
+        response_mime_type: str = "application/json",
+    ) -> None:
+        self._api_key = api_key
+        self.model_name = model_name or self.DEFAULT_MODEL
         self._base_config = types.GenerateContentConfig(
-            temperature=0,
-            response_mime_type="application/json",
-            response_schema=Student
+            temperature=temperature,
+            response_mime_type=response_mime_type,
+            response_schema=Student,
         )
-
-    # ---------- setup ----------
-    def initialize(self) -> bool:
-        try:
-            self.client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
-            return True
-        except Exception as e:
-            st.error(f"Gemini init error: {e}")
-            return False
+        self._client: Optional[genai.Client] = None
 
     # ---------- helpers ----------
-    def _upload_pdf(self, pdf_bytes: bytes) -> types.File:
-        """
-        Upload a PDF and return its File handle for the 'contents' list.
-        """
+    def _client_or_init(self) -> genai.Client:
+        if not self._client:
+            self._client = genai.Client(api_key=self._api_key)
+            logger.info("Initialized Gemini client")
+        return self._client
+    
+
+    def list_models(self) -> list[str]:
+        """List all available models."""
+        client = self._client_or_init()
+        models =  client.models.list()
+        return [
+            m.name for m in models
+            if "generateContent" in getattr(m, "supported_actions", [])
+        ]
+ 
+    @staticmethod
+    def _upload_pdf(client: genai.Client, pdf_bytes: bytes) -> types.File:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(pdf_bytes)
             tmp_path = Path(tmp.name)
+        return client.files.upload(file=str(tmp_path))
 
-        # Upload **once**; reuse the returned object for every call
-        return self.client.files.upload(file=str(tmp_path))
-    
-    def _generate(self, prompt, file_or_part, config: Optional[types.GenerateContentConfig] = None):
-        """
-        Wraps client.models.generate_content with optional custom config.
-        Defaults to self._base_config if none is provided.
-        """
-        return self.client.models.generate_content(
-            model=self.MODEL_NAME,
+    def _generate(
+        self,
+        prompt: str,
+        file_or_part,
+        config: Optional[types.GenerateContentConfig] = None,
+    ) -> types.GenerateContentResponse:
+        client = self._client_or_init()
+        return client.models.generate_content(
+            model=self.model_name,
             contents=[prompt, file_or_part],
             config=config or self._base_config,
         )
-        r
 
-    # ---------- transcript processing ----------
-    def process_transcript(self, pdf_content: bytes, filename: str) -> str | None:
-        """
-        Extract course data from a transcript PDF.
-        """
+    # ---------- public helpers ----------
+    def process_transcript(
+        self,
+        pdf_bytes: bytes,
+        prompt: str | None = None,
+    ) -> str | None:
+        prompt = prompt or (
+            "Extract the student, institution, and every course from this transcript "
+            "PDF. Populate all required fields; leave optional ones null if unknown."
+        )
         try:
-            prompt = """
-            Extract the student, institution, and every course from this transcript PDF.
-            Populate all required fields; leave optional ones null if unknown.
-            """
-            pdf_file = self._upload_pdf(pdf_content)
+            pdf_file = self._upload_pdf(self._client_or_init(), pdf_bytes)
             resp = self._generate(prompt, pdf_file)
-            if not resp.text:
-                st.error("Gemini returned empty or invalid JSON")
-                logging.warning(resp.text)          # raw text for debugging
-                return None
-            return resp.text           # JSON as string
-
-        except Exception as e:
-            st.error(f"Error processing {filename}: {e}")
+            return resp.text or None
+        except Exception as exc:
+            logger.exception("Error extracting transcript: %s", exc)
             return None
 
-    
