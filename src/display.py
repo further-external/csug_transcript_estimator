@@ -169,7 +169,7 @@ def generate_pdf(data: Dict) -> bytes:
     buffer.close()
     return pdf_data
 
-def display_evaluation_results(evaluation_results: Dict):
+def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = False):
     """
     Display transcript evaluation results in the Streamlit UI.
     
@@ -236,7 +236,7 @@ def display_evaluation_results(evaluation_results: Dict):
                         width='large'
                     ),
                     'credits': st.column_config.NumberColumn(
-                        'Credits',
+                        'Credits (adjusted)' if is_quarter else 'Credits',
                         format="%.1f"
                     ),
                     'grade': st.column_config.TextColumn(
@@ -289,7 +289,7 @@ def display_evaluation_results(evaluation_results: Dict):
                         width='large'
                     ),
                     'credits': st.column_config.NumberColumn(
-                        'Credits',
+                        'Credits (adjusted)' if is_quarter else 'Credits',
                         format="%.1f"
                     ),
                     'grade': st.column_config.TextColumn(
@@ -306,6 +306,11 @@ def display_evaluation_results(evaluation_results: Dict):
                     )
                 }
             )
+            if is_quarter:
+                st.caption("🛈 *Credits shown are adjusted to semester equivalents (÷1.5) due to Quarter system selection.*")
+
+            if summary.get('total_transferable_credits', 0) >= 90:
+                st.warning("Accepted credits have reached the maximum transferable limit of 90.")
 
 def validate_course(course):
     """Validate course data and return any issues"""
@@ -387,10 +392,16 @@ def display_combined_results(data: Dict):
                 else x.lower() == 'true' if isinstance(x, str) else False
             )
             
+            # Disable editing for now, save this for later rev use
             # Create editable data grid
-            edited_df = st.data_editor(
+            # edited_df = st.data_editor(
+            #     courses_df,
+            #     num_rows="dynamic",
+            #     use_container_width=True,
+
+            # Create static results grid
+            st.dataframe(
                 courses_df,
-                num_rows="dynamic",
                 use_container_width=True,
                 column_config={
                     "course_code": st.column_config.TextColumn(
@@ -463,7 +474,7 @@ def display_combined_results(data: Dict):
             )
             
             # Show validation issues
-            issues = edited_df[edited_df['notes'] != "✓"]
+            issues = courses_df[courses_df['notes'] != "✓"]  # Changed refs from edited_df
             if not issues.empty:
                 st.warning(f"Found {len(issues)} courses with data quality issues")
 
@@ -471,7 +482,7 @@ def display_combined_results(data: Dict):
             if st.button("Generate PDF"):
                 pdf_data = generate_pdf({
                     'student_info': data.get('student_info', {}),
-                    'courses': edited_df.to_dict('records')
+                    'courses': courses_df.to_dict('records')  # Changed ref from edited_df
                 })
                 st.download_button(
                     "Download PDF",
@@ -479,7 +490,8 @@ def display_combined_results(data: Dict):
                     "transcript_analysis.pdf",
                     "application/pdf"
                 )            
-            return edited_df if 'edited_df' in locals() else None
+            # return edited_df if 'edited_df' in locals() else None  # Remove for now
+            return None
 
     except Exception as e:
         st.error(f"Error displaying results: {str(e)}")

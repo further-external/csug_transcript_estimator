@@ -77,6 +77,17 @@ def render_upload_tab(client: GeminiClient):
         if uploaded_files:
             st.write(f"{len(uploaded_files)} file(s) uploaded successfully")
 
+            term_option = st.radio(
+                "Select your academic term system:",
+                options=["Semester system", "Quarter system"],
+                index=0,
+                key="term_system",
+                help="Choose how course credits should be interpreted"
+            )
+
+            # Store as boolean (optional, for logic)
+            st.session_state.is_quarter = term_option == "Quarter system"
+
             if st.button("Process Transcripts", key="process_button"):
                 with st.spinner("Processing transcripts..."):
                     try:
@@ -155,7 +166,7 @@ def render_review_tab(client: GeminiClient):
         st.session_state.evaluation_complete
         and hasattr(st.session_state, "evaluation_results")
     ):
-        display_evaluation_results(st.session_state.evaluation_results)
+        display_evaluation_results(st.session_state.evaluation_results, is_quarter=st.session_state.get("is_quarter", False))
 
 
 # ──────────────────────────────────────────────────────────────────────────
