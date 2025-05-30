@@ -1,0 +1,41 @@
+# Core dependencies
+pydantic==2.6.1
+python-dotenv==1.0.1
+PyJWT==2.8.0
+
+# Web framework and API
+fastapi==0.109.2
+uvicorn==0.27.1
+starlette==0.36.3
+
+# Database and caching
+redis==5.0.1
+SQLAlchemy==2.0.25
+
+# PDF generation
+reportlab==4.0.8
+
+# UI components
+streamlit==1.31.1
+pandas==2.2.0
+
+# AI/ML components
+google-cloud-aiplatform==1.38.1
+scikit-learn==1.4.0
+numpy==1.26.3
+
+# Testing
+pytest==8.0.0
+pytest-cov==4.1.0
+
+# Logging and monitoring
+structlog==24.1.0
+
+# Security
+cryptography==42.0.2
+bcrypt==4.1.2
+
+# Development tools
+black==24.1.1
+flake8==7.0.0
+mypy==1.8.0 
