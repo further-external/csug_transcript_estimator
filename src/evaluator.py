@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 import streamlit as st
+import re
 
 from src.gemini_client import GeminiClient
 from src.confidence_scorer import ConfidenceScorer
@@ -165,11 +166,19 @@ class TransferCreditEvaluator:
         ):
             evaluation['rejection_reasons'].append('Grade or status below requirement')
             
+        # Introductory course check
+        course_code = course.get('course_code', '')
+        match = re.search(r'\d+', course_code)
+        if match:
+            course_number = int(match.group(0))
+            if course_number < 100:
+                evaluation['rejection_reasons'].append('Introductory course (course number below 100)')
+
         # Set final transfer status
         evaluation['transferable'] = len(evaluation['rejection_reasons']) == 0
         return evaluation
 
-    def evaluate_transcript(self, transcript_data: Dict) -> Dict:
+    def evaluate_transcript(self, transcript_data: Dict, is_quarter: bool = False) -> Dict:
         """
         Evaluate an entire transcript and generate summary statistics.
         
@@ -189,8 +198,17 @@ class TransferCreditEvaluator:
                 - Credit totals by category
         """
         # Evaluate all courses
-        evaluated_courses = [self.evaluate_course(course) for course in transcript_data.get('courses', [])]
-        
+        evaluated_courses = []
+            
+        for course in transcript_data.get('courses', []):
+            eval_result = self.evaluate_course(course)
+            
+            # Adjust credit values for quarter system
+            if is_quarter:
+                eval_result['credits'] = round(eval_result['credits'] / 1.5, 2)
+            
+            evaluated_courses.append(eval_result)
+
         # Separate courses by confidence level
         high_confidence_courses = [
             course for course in evaluated_courses 
@@ -204,9 +222,9 @@ class TransferCreditEvaluator:
         # Calculate summary statistics
         summary = {
             'total_credits': sum(course['credits'] for course in evaluated_courses),
-            'total_transferable_credits': sum(
+            'total_transferable_credits': min(90, sum(
                 course['credits'] for course in high_confidence_courses
-                if course['transferable']
+                if course['transferable'])
             ),
             'total_rejected_credits': sum(
                 course['credits'] for course in high_confidence_courses
