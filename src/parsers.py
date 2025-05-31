@@ -13,12 +13,16 @@ The parser is designed to be flexible and handle multiple input formats while
 producing a consistent, clean output structure suitable for evaluation.
 """
 
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Optional
 import json
+import logging
 import streamlit as st
-from .models import Student
+from .models import Student, Course, Institution
 
-# ▸ helper stubs – keep your own implementations
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 def _parse_credits(val: Any) -> float | None:
     """
     Convert various credit value formats to float.
@@ -35,201 +39,154 @@ def _parse_credits(val: Any) -> float | None:
     - Float values
     - None/empty values
     """
+    if val is None or val == "":
+        return None
+        
     try:
-        return float(val) if val not in (None, "") else None
-    except ValueError:
+        # Handle string fractions
+        if isinstance(val, str) and "/" in val:
+            num, denom = map(float, val.split("/"))
+            return num / denom
+            
+        # Handle normal numeric values
+        return float(val)
+    except (ValueError, ZeroDivisionError) as e:
+        logger.warning(f"Failed to parse credit value '{val}': {str(e)}")
         return None
 
-def _parse_bool(val: Any) -> bool | None:
+def _normalize_grade(grade: str) -> str:
+    """Normalize grade format."""
+    if not grade:
+        return "N/A"
+    
+    grade = grade.upper().strip()
+    
+    # Standard letter grades
+    if grade in {"A", "A-", "A+", "B+", "B", "B-", "C+", "C", "C-", 
+                "D+", "D", "D-", "F"}:
+        return grade
+        
+    # Pass/Fail variations
+    if grade in {"P", "PASS", "CR", "S", "SATISFACTORY"}:
+        return "P"
+    if grade in {"F", "FAIL", "NC", "U", "UNSATISFACTORY"}:
+        return "F"
+        
+    # Other standard notations
+    if grade in {"W", "WD", "WITHDRAWN"}:
+        return "W"
+    if grade in {"I", "INC", "INCOMPLETE"}:
+        return "I"
+        
+    logger.warning(f"Unknown grade format: {grade}")
+    return grade
+
+def parse_transcript_data(json_str: str) -> Optional[Dict[str, Any]]:
     """
-    Convert various boolean-like values to Python bool.
+    Parse and validate transcript data from JSON string.
     
     Args:
-        val: Boolean-like value (string, bool, or None)
+        json_str (str): JSON string containing transcript data
         
     Returns:
-        bool | None: Normalized boolean value or None if invalid
+        Optional[Dict[str, Any]]: Parsed and validated data or None if invalid
         
-    Accepts:
-    - Boolean values
-    - String representations ("true", "yes", etc.)
-    - Numeric strings ("1", "0")
+    The function:
+    1. Parses JSON string
+    2. Validates required fields
+    3. Normalizes data formats
+    4. Handles missing or invalid data
     """
-    if val in (None, ""):
-        return None
-    if isinstance(val, bool):
-        return val
-    return str(val).lower() in {"true", "t", "yes", "y", "1"}
-
-
-# ▸ THE FIXED FUNCTION
-def parse_transcript_data(json_text: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Parse and normalize transcript data from JSON.
-    
-    This function handles multiple input formats and produces a standardized
-    dictionary structure containing student, institution, and course information.
-    
-    Args:
-        json_text: JSON string or dictionary containing transcript data
-        
-    Returns:
-        Dict with normalized structure:
-        {
-            "student_info": {
-                "name": str,
-                "id": str,
-                "dob": str
-            },
-            "institution_info": {
-                "name": str,
-                "location": str,
-                "type": str
-            },
-            "courses": [
-                {
-                    "course_code": str,
-                    "course_name": str,
-                    "credits": float,
-                    "grade": str,
-                    "year": str,
-                    "is_transfer": bool,
-                    "transfer_details": str,
-                    "status": str
-                },
-                ...
-            ]
+    try:
+        # Parse JSON string
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON data: {str(e)}")
+            return None
+            
+        # Initialize result structure
+        result = {
+            "student_info": {},
+            "institution_info": {},
+            "courses": [],
+            "source_file": None
         }
-    """
-    # Convert JSON string to dictionary if needed
-    json_data: Dict[str, Any] = (
-        json_text if isinstance(json_text, dict) else json.loads(json_text)
-    )
-
-    # Initialize output structure
-    data: Dict[str, Any] = {
-        "student_info": {},
-        "institution_info": {},
-        "courses": [],
-    }
-
-    # Process student information
-    # Handle both new format (separate first/last name) and legacy format
-    if "first_name" in json_data or "last_name" in json_data:
-        # New format: separate first/last name fields
-        first = str(json_data.get("first_name", "")).strip()
-        last = str(json_data.get("last_name", "")).strip()
-        data["student_info"]["name"] = (first + " " + last).strip()
-        data["student_info"]["id"] = str(json_data.get("student_id", ""))
-    else:
-        # Legacy format: nested student information
-        student_raw = (
-            json_data.get("Student Information")
-            or json_data.get("Student")
-            or json_data.get("student_info")
-            or {}
+        
+        # Parse student information
+        student_info = data.get("student_info", {})
+        if not student_info.get("name"):
+            logger.error("Missing required student name")
+            return None
+            
+        result["student_info"] = {
+            "name": student_info.get("name"),
+            "id": student_info.get("id"),
+            "program": student_info.get("program"),
+            "level": student_info.get("level")
+        }
+        
+        # Parse institution information
+        inst_info = data.get("institution_info", {})
+        if not inst_info.get("name"):
+            logger.error("Missing required institution name")
+            return None
+            
+        result["institution_info"] = {
+            "name": inst_info.get("name"),
+            "location": inst_info.get("location"),
+            "accreditation": inst_info.get("accreditation")
+        }
+        
+        # Parse course information
+        courses = data.get("courses", [])
+        if not courses:
+            logger.warning("No courses found in transcript")
+            return result
+            
+        for course in courses:
+            try:
+                # Validate required fields
+                if not all(k in course for k in ["course_code", "course_name", "credits", "grade"]):
+                    logger.warning(f"Skipping course with missing required fields: {course}")
+                    continue
+                    
+                # Parse and validate credits
+                credits = _parse_credits(course["credits"])
+                if credits is None:
+                    logger.warning(f"Skipping course with invalid credits: {course}")
+                    continue
+                    
+                # Normalize grade
+                grade = _normalize_grade(course["grade"])
+                
+                # Create validated course entry
+                parsed_course = {
+                    "course_code": course["course_code"],
+                    "course_name": course["course_name"],
+                    "credits": credits,
+                    "grade": grade,
+                    "year": course.get("year"),
+                    "term": course.get("term"),
+                    "is_transfer": course.get("is_transfer", True),
+                    "transfer_details": course.get("transfer_details"),
+                    "source_institution": inst_info.get("name"),
+                    "confidence_score": 0.0,  # Will be set by confidence scorer
+                    "needs_review": False
+                }
+                
+                result["courses"].append(parsed_course)
+                
+            except Exception as e:
+                logger.warning(f"Error parsing course: {str(e)}")
+                continue
+                
+        # Log parsing success
+        logger.info(
+            f"Successfully parsed transcript with {len(result['courses'])} courses"
         )
-        data["student_info"] = {
-            "name": str(student_raw.get("Name", "")),
-            "id": str(student_raw.get("ID", "")),
-            "dob": str(student_raw.get("Date of Birth", "")),
-        }
-
-    # Process institution information
-    # Handle multiple possible key names for backward compatibility
-    inst_raw = (
-        json_data.get("institution")                               
-        or json_data.get("Institution Information")
-        or json_data.get("Institution")
-        or json_data.get("institutions")
-        or json_data.get("institution_info")
-        or {}
-    )
-    data["institution_info"] = {
-        "name": str(inst_raw.get("name", inst_raw.get("Name", ""))),
-        "location": str(inst_raw.get("location", inst_raw.get("Location", ""))),
-        "type": str(inst_raw.get("institution_type", inst_raw.get("Type", ""))),
-    }
-
-    # Process course information
-    # Handle multiple possible formats and key names
-    courses_raw = (
-        json_data.get("courses")                    
-        or json_data.get("Course Information")
-        or json_data.get("Courses")
-        or []
-    )
-
-    # Convert dictionary of courses to list if necessary
-    if isinstance(courses_raw, dict):
-        courses_raw = list(courses_raw.values())
-
-    # Process each course, normalizing field names and data types
-    for course in courses_raw:
-        processed = {
-            # Map both new and legacy field names
-            "course_code": str(course.get("course_code", course.get("Course Code", ""))),
-            "course_name": str(course.get("course_title", course.get("Course Name", ""))),
-            "credits": _parse_credits(course.get("credit", course.get("Credits"))),
-            "grade": str(course.get("grade", course.get("Grade", ""))),
-            "year": str(course.get("year", course.get("Year", ""))),
-            "is_transfer": _parse_bool(course.get("is_transfer", course.get("Is Transfer"))),
-            "transfer_details": str(course.get("transfer_details",
-                                           course.get("Transfer Details", ""))),
-            "status": str(course.get("status", course.get("Status", ""))),
-        }
-
-        # Only include courses with valid identifiers
-        if processed["course_code"] or processed["course_name"]:
-            data["courses"].append(processed)
-
-    return data
-
-def _parse_credits(credits: Any) -> float:
-    """
-    Parse and normalize credit values to float.
-    
-    Args:
-        credits: Raw credit value (string, int, float, or other)
+        return result
         
-    Returns:
-        float: Normalized credit value, 0.0 if invalid
-        
-    Features:
-    - Strips non-numeric characters except decimal point
-    - Handles various numeric formats
-    - Defaults to 0.0 for invalid inputs
-    - Preserves decimal precision
-    """
-    try:
-        # Clean string inputs
-        if isinstance(credits, str):
-            credits = ''.join(c for c in credits if c.isdigit() or c == '.')
-        
-        # Convert to float with default
-        return float(credits) if credits else 0.0
-    except (ValueError, TypeError):
-        return 0.0
-
-def _parse_bool(value: Any) -> bool:
-    """
-    Parse and normalize boolean values.
-    
-    Args:
-        value: Raw boolean-like value
-        
-    Returns:
-        bool: Normalized boolean value
-        
-    Accepts:
-    - Python booleans
-    - String representations ('true', '1', 'yes', 'y')
-    - Numeric values (converted via bool())
-    """
-    if isinstance(value, bool):
-        return value
-    
-    if isinstance(value, str):
-        return value.lower() in ['true', '1', 'yes', 'y']
-    
-    return bool(value)
+    except Exception as e:
+        logger.error(f"Error parsing transcript data: {str(e)}")
+        return None

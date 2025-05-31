@@ -21,6 +21,7 @@ pandas==2.2.0
 
 # AI/ML components
 google-cloud-aiplatform==1.38.1
+google-generativeai==0.3.2
 scikit-learn==1.4.0
 numpy==1.26.3
 

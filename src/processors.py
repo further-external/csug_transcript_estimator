@@ -15,6 +15,7 @@ providing feedback through the Streamlit interface.
 
 from typing import List, Optional
 import time
+import logging
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from .models import Student, CombinedTranscriptData
@@ -22,6 +23,10 @@ from .gemini_client import GeminiClient
 from .parsers import parse_transcript_data
 import pandas as pd
 import json
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -> List[Student]:
     """
@@ -40,10 +45,15 @@ def process_multiple_pdfs(client: GeminiClient, pdf_files: List[UploadedFile]) -
     all_results = []
     
     for pdf_file in pdf_files:
+        logger.info(f"Processing file: {pdf_file.name}")
         result = process_single_pdf(client, pdf_file)
         if result:
             all_results.append(result)
+            logger.info(f"Successfully processed {pdf_file.name}")
+        else:
+            logger.warning(f"Failed to process {pdf_file.name}")
     
+    logger.info(f"Completed processing {len(all_results)} of {len(pdf_files)} files")
     return all_results
 
 def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional[Student]:
@@ -68,30 +78,38 @@ def process_single_pdf(client: GeminiClient, pdf_file: UploadedFile) -> Optional
     with st.spinner(f"Currently Processing {pdf_file.name}..."):
         try:
             # Extract transcript data using AI
+            logger.info(f"Reading PDF content from {pdf_file.name}")
             pdf_content = pdf_file.read()
 
             # Use custom prompt if provided in session state
             prompt = st.session_state.custom_prompt or None
+            logger.info("Sending to Gemini for extraction")
             result = client.process_transcript(pdf_content, prompt)
+            
             if not result:
+                logger.error(f"Gemini extraction failed for {pdf_file.name}")
                 st.warning(f"Failed to process {pdf_file.name}")
                 return None
                 
+            logger.info("Parsing extracted data")
             # Parse extracted data into structured format
             parsed_data = parse_transcript_data(result)
             if not parsed_data:
+                logger.error(f"Data parsing failed for {pdf_file.name}")
                 st.warning(f"Could not parse data from {pdf_file.name}")
                 return None
                 
             # Add source file information for tracking
             parsed_data['source_file'] = pdf_file.name
             institution_name = parsed_data.get('institution_info', {}).get('name')
+            logger.info(f"Successfully processed transcript from {institution_name}")
             
             # Brief delay to prevent rate limiting
             time.sleep(0.5)
             return parsed_data
             
         except Exception as e:
+            logger.exception(f"Error processing {pdf_file.name}: {str(e)}")
             st.error(f"Error processing {pdf_file.name}: {str(e)}")
             return None
 
@@ -112,7 +130,10 @@ def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTran
     4. Maintain source information for each entry
     """
     if not all_results:
+        logger.warning("No results to combine")
         return None
+        
+    logger.info(f"Combining data from {len(all_results)} transcripts")
         
     # Initialize combined data structure
     combined_data = {
@@ -134,93 +155,37 @@ def combine_transcript_data(all_results: List[Student]) -> Optional[CombinedTran
         
         # Add new institutions
         if institution_name and institution_name not in seen_institutions:
-            add_institution_data(
-                combined_data, 
-                institution, 
-                institution_name, 
-                seen_institutions
-            )
+            logger.info(f"Adding institution: {institution_name}")
+            combined_data["institutions"].append(institution)
+            seen_institutions.add(institution_name)
         
         # Add courses from this institution    
-        add_course_data(
-            combined_data,
-            result.get("courses", []),
-            institution_name,
-            result.get("source_file", "Unknown"),
-            seen_courses
-        )
-    return combined_data
-
-def add_institution_data(combined_data: dict, institution: dict, 
-                        institution_name: str, 
-                        seen_institutions: set):
-    """
-    Add institution data to combined results if not already present.
-    
-    Args:
-        combined_data (dict): Combined transcript data
-        institution (dict): Institution information
-        institution_name (str): Name of institution
-        seen_institutions (set): Set of processed institution names
+        courses = result.get("courses", [])
+        logger.info(f"Processing {len(courses)} courses from {institution_name}")
         
-    Ensures each institution is only added once to the combined data.
-    """
-    seen_institutions.add(institution_name)
-    combined_data["institutions"].append(institution)
-
-
-def add_course_data(combined_data: dict, courses: list, 
-                    institution_name: str, source_file: str,
-                    seen_courses: set):
-    """
-    Add course data to combined results, handling duplicates and credit calculation.
-    
-    Args:
-        combined_data (dict): Combined transcript data
-        courses (list): List of courses to add
-        institution_name (str): Source institution name
-        source_file (str): Source transcript filename
-        seen_courses (set): Set of processed course keys
-        
-    Process:
-    1. Generate unique key for each course
-    2. Skip duplicates based on name, grade, and year
-    3. Normalize credit values and boolean fields
-    4. Calculate running credit totals
-    5. Track source information
-    """
-    for course in courses:
-        # Create unique key for duplicate detection
-        course_key = f"{course.get('course_name', '')}_{course.get('grade', '')}_{course.get('year', '')}"
-        
-        # Process new, valid courses
-        if (course_key not in seen_courses and 
-            course.get('course_name')):
-            # Normalize boolean fields
-            course["is_transfer"] = course["is_transfer"] == "True"
-            seen_courses.add(course_key)
+        for course in courses:
+            course_key = (
+                course.get("course_code"),
+                course.get("course_name"),
+                institution_name
+            )
             
-            # Create standardized course entry
-            course_entry = {
-                "course_code": course.get("course_code", "N/A"),
-                "course_name": course.get("course_name", ""),
-                "credits": float(str(course.get("credits", "0")).replace(",", "").split()[0]),
-                "grade": course.get("grade", ""),
-                "year": course.get("year", ""),
-                "is_transfer": course.get("is_transfer", False),
-                "transfer_details": course.get("transfer_details",""),
-                "source_institution": institution_name,
-                "source_file": source_file,
-                "status": course.get("status", "Unknown")
-            }
-            
-            combined_data["courses"].append(course_entry)
-            
-            # Update credit totals
-            try:
-                credits = float(str(course.get("credits", "0")).replace(",", "").split()[0])
+            if course_key not in seen_courses:
+                combined_data["courses"].append(course)
+                seen_courses.add(course_key)
+                
+                # Update credit totals
+                credits = course.get("credits", 0)
                 combined_data["total_credits"] += credits
-                if course.get("is_transfer", False):
+                if course.get("is_transfer", True):
                     combined_data["total_transfer_credits"] += credits
-            except ValueError:
-                st.warning(f"Could not parse credits for course: {course.get('course_code', 'Unknown')}")
+    
+    logger.info(
+        f"Combined data summary:\n"
+        f"- Institutions: {len(combined_data['institutions'])}\n"
+        f"- Courses: {len(combined_data['courses'])}\n"
+        f"- Total Credits: {combined_data['total_credits']}\n"
+        f"- Transfer Credits: {combined_data['total_transfer_credits']}"
+    )
+    
+    return combined_data

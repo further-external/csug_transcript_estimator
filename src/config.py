@@ -1,15 +1,8 @@
 """
 Configuration Module
 
-This module manages application configuration and feature flags.
-It provides:
-1. Environment-based configuration
-2. Feature flags
-3. Security settings
-4. Performance tuning
-
-Configuration can be controlled via environment variables
-or configuration files.
+This module handles all configuration settings for the application,
+including logging, environment variables, and system settings.
 
 How to Disable Authentication for Development/Testing:
 ---------------------------------------------------
@@ -38,12 +31,92 @@ TOKEN_EXPIRY_HOURS=8
 """
 
 import os
+import logging.config
+from pathlib import Path
 from typing import Dict, Any
+import json
+from datetime import datetime
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Base directory for all logs
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+# Create dated log files
+current_date = datetime.now().strftime("%Y-%m-%d")
+ERROR_LOG = LOG_DIR / f"error_{current_date}.log"
+DEBUG_LOG = LOG_DIR / f"debug_{current_date}.log"
+API_LOG = LOG_DIR / f"api_{current_date}.log"
+
+# Logging configuration
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "detailed": {
+            "format": "%(asctime)s | %(name)s | %(levelname)s | %(module)s:%(lineno)d | %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "simple": {
+            "format": "%(asctime)s | %(levelname)s | %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "simple",
+            "stream": "ext://sys.stdout",
+        },
+        "error_file": {
+            "class": "logging.FileHandler",
+            "level": "ERROR",
+            "formatter": "detailed",
+            "filename": str(ERROR_LOG),
+            "mode": "a",
+        },
+        "debug_file": {
+            "class": "logging.FileHandler",
+            "level": "DEBUG",
+            "formatter": "detailed",
+            "filename": str(DEBUG_LOG),
+            "mode": "a",
+        },
+        "api_file": {
+            "class": "logging.FileHandler",
+            "level": "INFO",
+            "formatter": "detailed",
+            "filename": str(API_LOG),
+            "mode": "a",
+        },
+    },
+    "loggers": {
+        "": {  # Root logger
+            "handlers": ["console", "error_file"],
+            "level": "INFO",
+            "propagate": True,
+        },
+        "gemini_client": {
+            "handlers": ["api_file", "error_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+        "app": {
+            "handlers": ["debug_file", "error_file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
+    },
+}
+
+# Initialize logging configuration
+logging.config.dictConfig(LOGGING_CONFIG)
+logger = logging.getLogger(__name__)
 
 @dataclass
 class SecurityConfig:
@@ -95,127 +168,61 @@ class RateLimitConfig:
     default_rpm: int = 60
     burst_size: int = 10
 
-class AppConfig:
-    """
-    Application configuration manager.
-    
-    This class provides:
-    - Environment-based configuration
-    - Feature flags
-    - Configuration validation
-    - Secure defaults
-    """
+class Config:
+    """Application configuration management."""
     
     def __init__(self):
-        """Initialize configuration with environment values."""
-        self.environment = os.getenv("APP_ENV", "development")
+        """Initialize configuration with environment variables and defaults."""
+        self.debug_mode = os.getenv("DEBUG", "false").lower() == "true"
+        self.api_timeout = int(os.getenv("API_TIMEOUT", "30"))
+        self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
+        self.batch_size = int(os.getenv("BATCH_SIZE", "10"))
         
-        # Security configuration
-        self.security = SecurityConfig(
-            auth_enabled=self._parse_bool(
-                os.getenv("AUTH_ENABLED", "true")
-            ),
-            jwt_secret=os.getenv(
-                "JWT_SECRET",
-                "default-secret-change-in-production"
-            ),
-            token_expiry_hours=int(
-                os.getenv("TOKEN_EXPIRY_HOURS", "8")
-            ),
-            min_password_length=int(
-                os.getenv("MIN_PASSWORD_LENGTH", "8")
-            )
-        )
+        # Confidence thresholds
+        self.min_confidence = float(os.getenv("MIN_CONFIDENCE", "0.7"))
+        self.review_threshold = float(os.getenv("REVIEW_THRESHOLD", "0.85"))
         
-        # Cache configuration
-        self.cache = CacheConfig(
-            enabled=self._parse_bool(
-                os.getenv("CACHE_ENABLED", "true")
-            ),
-            redis_url=os.getenv(
-                "REDIS_URL",
-                "redis://localhost:6379"
-            ),
-            default_ttl=int(
-                os.getenv("CACHE_TTL", "3600")
-            )
-        )
+        # Rate limiting
+        self.rate_limit = int(os.getenv("RATE_LIMIT", "100"))
+        self.rate_window = int(os.getenv("RATE_WINDOW", "3600"))
         
-        # Rate limit configuration
-        self.rate_limit = RateLimitConfig(
-            enabled=self._parse_bool(
-                os.getenv("RATE_LIMIT_ENABLED", "true")
-            ),
-            default_rpm=int(
-                os.getenv("RATE_LIMIT_RPM", "60")
-            ),
-            burst_size=int(
-                os.getenv("RATE_LIMIT_BURST", "10")
-            )
-        )
+        # Cache settings
+        self.cache_ttl = int(os.getenv("CACHE_TTL", "3600"))
+        self.max_cache_size = int(os.getenv("MAX_CACHE_SIZE", "1000"))
         
-        # Validate configuration
-        self._validate()
-        
-    def _parse_bool(self, value: str) -> bool:
-        """Parse string boolean value."""
-        return value.lower() in ("true", "1", "yes", "on")
-        
-    def _validate(self) -> None:
-        """
-        Validate configuration values.
-        
-        Important Security Checks:
-        1. Prevents disabling auth in production
-        2. Requires proper JWT secret in production
-        3. Validates other security settings
-        
-        Raises:
-            ValueError: If security configuration is invalid for environment
-        """
-        if self.environment == "production":
-            # Ensure secure configuration in production
-            if self.security.jwt_secret == "default-secret-change-in-production":
-                raise ValueError("Default JWT secret not allowed in production")
-                
-            if not self.security.auth_enabled:
-                raise ValueError(
-                    "Authentication cannot be disabled in production. "
-                    "To disable auth for development/testing, set APP_ENV to 'development' "
-                    "or 'testing' and AUTH_ENABLED to 'false'"
-                )
-        
-    def is_development(self) -> bool:
-        """Check if in development environment."""
-        return self.environment == "development"
-        
-    def is_production(self) -> bool:
-        """Check if in production environment."""
-        return self.environment == "production"
-        
-    def is_testing(self) -> bool:
-        """Check if in testing environment."""
-        return self.environment == "testing"
-        
+        logger.info("Configuration initialized")
+        if self.debug_mode:
+            logger.debug(f"Current configuration: {self.to_dict()}")
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
         return {
-            "environment": self.environment,
-            "security": {
-                "auth_enabled": self.security.auth_enabled,
-                "token_expiry_hours": self.security.token_expiry_hours,
-                "min_password_length": self.security.min_password_length
-            },
-            "cache": {
-                "enabled": self.cache.enabled,
-                "default_ttl": self.cache.default_ttl
-            },
-            "rate_limit": {
-                "enabled": self.rate_limit.enabled,
-                "default_rpm": self.rate_limit.default_rpm,
-                "burst_size": self.rate_limit.burst_size
-            }
+            "debug_mode": self.debug_mode,
+            "api_timeout": self.api_timeout,
+            "max_retries": self.max_retries,
+            "batch_size": self.batch_size,
+            "min_confidence": self.min_confidence,
+            "review_threshold": self.review_threshold,
+            "rate_limit": self.rate_limit,
+            "rate_window": self.rate_window,
+            "cache_ttl": self.cache_ttl,
+            "max_cache_size": self.max_cache_size,
         }
+    
+    def validate(self) -> None:
+        """Validate configuration settings."""
+        try:
+            assert 0 < self.api_timeout <= 120, "API timeout must be between 1 and 120 seconds"
+            assert 0 < self.max_retries <= 5, "Max retries must be between 1 and 5"
+            assert 0 < self.batch_size <= 100, "Batch size must be between 1 and 100"
+            assert 0 <= self.min_confidence <= 1, "Minimum confidence must be between 0 and 1"
+            assert 0 <= self.review_threshold <= 1, "Review threshold must be between 0 and 1"
+            assert self.min_confidence <= self.review_threshold, "Minimum confidence must be less than review threshold"
+            logger.info("Configuration validation successful")
+        except AssertionError as e:
+            logger.error(f"Configuration validation failed: {str(e)}")
+            raise ValueError(f"Invalid configuration: {str(e)}")
 
 # Global configuration instance
-config = AppConfig() 
+config = Config()
+config.validate() 

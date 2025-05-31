@@ -1,184 +1,318 @@
 """
 Confidence Scoring Module
 
-This module provides functionality to calculate confidence scores for extracted course data.
-It uses multiple metrics to determine how reliable the extracted information is:
-- Field completeness: Checks if all required fields are present
-- Data quality: Validates data against expected patterns
-- Format consistency: Ensures data follows expected formats
+This module calculates confidence scores for transcript evaluation results.
+It considers:
+1. Data completeness
+2. Grade validity
+3. Course level appropriateness
+4. Credit system consistency
+5. Overall evaluation reliability
 
-The confidence score is used to:
-1. Identify courses that need manual review
-2. Filter out low-confidence data from automatic evaluation
-3. Provide transparency about data extraction reliability
+The scoring system helps identify entries that may need manual review.
 """
 
-from typing import Dict, List, Optional
 import re
-from dataclasses import dataclass
+import logging
+from typing import Dict, List, Set, Optional
+from datetime import datetime
 
-@dataclass
-class ConfidenceMetrics:
-    """
-    Container for different confidence metrics used in scoring.
-    
-    Attributes:
-        field_completeness (float): Percentage of required fields present (0-1)
-        data_quality (float): Score based on data matching expected patterns (0-1)
-        format_consistency (float): Score based on data format consistency (0-1)
-    """
-    field_completeness: float
-    data_quality: float
-    format_consistency: float
-    
+from .models import Course, Institution, TranscriptEvaluation
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
 class ConfidenceScorer:
     """
-    Calculates confidence scores for extracted course data.
+    Calculates confidence scores for transcript evaluation results.
     
-    The scorer uses multiple metrics to evaluate how reliable the extracted
-    data is. Each metric contributes to the final confidence score with
-    different weights.
+    Features:
+    - Course-level scoring
+    - Grade validation
+    - Credit system checks
+    - Data completeness assessment
+    - Manual review flagging
     """
     
+    # Valid grade patterns and weights
+    VALID_GRADES: Set[str] = {
+        'A+', 'A', 'A-',
+        'B+', 'B', 'B-',
+        'C+', 'C', 'C-'
+    }
+    
+    # Confidence weights for different factors
+    WEIGHTS = {
+        'course_code': 0.25,    # Weight for course code validation
+        'grade': 0.25,          # Weight for grade validation
+        'credits': 0.20,        # Weight for credit value validation
+        'completeness': 0.15,   # Weight for data completeness
+        'consistency': 0.15     # Weight for data consistency
+    }
+    
     def __init__(self):
-        """
-        Initialize the confidence scorer with validation patterns and required fields.
+        """Initialize the confidence scorer."""
+        self.review_threshold = 0.85  # Score below this triggers review
         
-        The scorer is configured with:
-        - List of required fields that should be present
-        - Regex patterns for validating different data types
-        - Weights for different confidence metrics
+    def score_course(self, course: Course, institution: Institution) -> Dict[str, float]:
         """
-        # Fields that must be present for a complete course record
-        self.required_fields = [
-            'course_code', 'course_name', 'credits', 
-            'grade', 'term', 'year'
-        ]
-        
-        # Regex patterns for validating data formats
-        self.grade_pattern = r'^[A-F][+-]?$|^[SPI]$|^CR$|^NP$|^W$'  # Standard grade formats
-        self.credit_pattern = r'^\d+\.?\d*$'  # Decimal numbers
-        self.year_pattern = r'^\d{4}$'  # 4-digit years
-        
-    def calculate_field_completeness(self, course: Dict) -> float:
-        """
-        Calculate the percentage of required fields that are present and non-empty.
+        Calculate confidence scores for a single course.
         
         Args:
-            course (Dict): Course data dictionary
+            course: Course to evaluate
+            institution: Institution information
             
         Returns:
-            float: Percentage of required fields present (0-1)
+            Dictionary of confidence scores by category
         """
-        present_fields = sum(1 for field in self.required_fields 
-                           if course.get(field))
-        return present_fields / len(self.required_fields)
-    
-    def check_data_quality(self, course: Dict) -> float:
-        """
-        Validate the quality of extracted data against expected patterns.
+        scores = {}
         
-        Checks:
-        - Grade format matches standard patterns
-        - Credits are valid numbers
-        - Year is in valid format
+        # Course code confidence
+        scores['course_code'] = self._score_course_code(course.course_code)
         
-        Args:
-            course (Dict): Course data dictionary
-            
-        Returns:
-            float: Quality score (0-1) based on pattern matching
-        """
-        quality_score = 0.0
-        checks = 0
+        # Grade confidence
+        scores['grade'] = self._score_grade(course.grade)
         
-        # Grade format validation
-        if course.get('grade'):
-            checks += 1
-            if re.match(self.grade_pattern, course['grade']):
-                quality_score += 1
-                
-        # Credit format validation
-        if course.get('credits'):
-            checks += 1
-            if isinstance(course['credits'], (int, float)) or \
-               (isinstance(course['credits'], str) and 
-                re.match(self.credit_pattern, course['credits'])):
-                quality_score += 1
-                
-        # Year format validation
-        if course.get('year'):
-            checks += 1
-            if re.match(self.year_pattern, str(course['year'])):
-                quality_score += 1
-                
-        return quality_score / max(checks, 1)
-    
-    def check_format_consistency(self, course: Dict) -> float:
-        """
-        Check if data formats are consistent with expectations.
-        
-        Validates:
-        - Course code minimum length
-        - Course name minimum length
-        
-        Args:
-            course (Dict): Course data dictionary
-            
-        Returns:
-            float: Consistency score (0-1)
-        """
-        consistency_score = 0.0
-        checks = 0
-        
-        # Course code length check
-        if course.get('course_code'):
-            checks += 1
-            if len(course['course_code']) >= 3:  # Most course codes are at least 3 chars
-                consistency_score += 1
-        
-        # Course name length check
-        if course.get('course_name'):
-            checks += 1
-            if len(course['course_name']) >= 3:  # Course names should be descriptive
-                consistency_score += 1
-                
-        return consistency_score / max(checks, 1)
-    
-    def calculate_confidence(self, course: Dict) -> float:
-        """
-        Calculate the overall confidence score for a course.
-        
-        The final score is a weighted average of:
-        - Field completeness (40%)
-        - Data quality (40%)
-        - Format consistency (20%)
-        
-        Args:
-            course (Dict): Course data dictionary
-            
-        Returns:
-            float: Confidence score as a percentage (0-100)
-        """
-        # Calculate individual metrics
-        metrics = ConfidenceMetrics(
-            field_completeness=self.calculate_field_completeness(course),
-            data_quality=self.check_data_quality(course),
-            format_consistency=self.check_format_consistency(course)
+        # Credits confidence
+        scores['credits'] = self._score_credits(
+            course.credits,
+            institution.credit_system
         )
         
-        # Define metric weights
-        weights = {
-            'field_completeness': 0.4,  # 40% weight
-            'data_quality': 0.4,        # 40% weight
-            'format_consistency': 0.2    # 20% weight
-        }
+        # Data completeness
+        scores['completeness'] = self._score_completeness(course)
+        
+        # Data consistency
+        scores['consistency'] = self._score_consistency(course)
         
         # Calculate weighted average
-        confidence = (
-            metrics.field_completeness * weights['field_completeness'] +
-            metrics.data_quality * weights['data_quality'] +
-            metrics.format_consistency * weights['format_consistency']
+        total_score = sum(
+            scores[k] * self.WEIGHTS[k]
+            for k in scores
         )
         
-        return round(confidence * 100, 1)  # Convert to percentage with 1 decimal 
+        # Add final score
+        scores['total'] = round(total_score, 2)
+        
+        # Log scoring details
+        logger.debug(
+            f"Course confidence scores: {course.course_code}",
+            extra={'scores': scores}
+        )
+        
+        return scores
+    
+    def _score_course_code(self, code: str) -> float:
+        """
+        Score course code validity and format.
+        
+        Args:
+            code: Course code to evaluate
+            
+        Returns:
+            Confidence score 0-1
+        """
+        if not code:
+            return 0.0
+            
+        # Extract numeric part
+        numbers = re.findall(r'\d+', code)
+        if not numbers:
+            return 0.5  # No number found
+            
+        try:
+            level = int(numbers[0])
+            
+            # Sub-100 courses are valid but excluded
+            if level < 100:
+                return 1.0
+                
+            # Normal course range
+            if 100 <= level <= 499:
+                return 1.0
+                
+            # Graduate level
+            if 500 <= level <= 999:
+                return 1.0
+                
+            # Unusual course number
+            return 0.7
+            
+        except ValueError:
+            return 0.5
+    
+    def _score_grade(self, grade: str) -> float:
+        """
+        Score grade validity.
+        
+        Args:
+            grade: Grade to evaluate
+            
+        Returns:
+            Confidence score 0-1
+        """
+        if not grade:
+            return 0.0
+            
+        grade = grade.upper()
+        
+        # Valid transferable grades
+        if grade in self.VALID_GRADES:
+            return 1.0
+            
+        # Non-transferable but valid grades
+        if grade in {'S', 'P', 'CR', 'T'}:
+            return 0.8
+            
+        # Failing grades
+        if grade in {'F', 'W', 'I', 'U'}:
+            return 0.9
+            
+        # Unknown grade format
+        return 0.3
+    
+    def _score_credits(self, credits: float, system: str) -> float:
+        """
+        Score credit value validity.
+        
+        Args:
+            credits: Credit value to evaluate
+            system: Credit system (semester/quarter)
+            
+        Returns:
+            Confidence score 0-1
+        """
+        if credits <= 0:
+            return 0.0
+            
+        if system == "semester":
+            # Most semester courses are 3-4 credits
+            if 1 <= credits <= 6:
+                return 1.0
+            if credits < 1:
+                return 0.7
+            return 0.8
+            
+        elif system == "quarter":
+            # Most quarter courses are 4-5 credits
+            if 1 <= credits <= 8:
+                return 1.0
+            if credits < 1:
+                return 0.7
+            return 0.8
+            
+        return 0.5
+    
+    def _score_completeness(self, course: Course) -> float:
+        """
+        Score data completeness.
+        
+        Args:
+            course: Course to evaluate
+            
+        Returns:
+            Confidence score 0-1
+        """
+        required_fields = {
+            'course_code': bool(course.course_code),
+            'course_name': bool(course.course_name),
+            'credits': course.credits > 0,
+            'grade': bool(course.grade)
+        }
+        
+        optional_fields = {
+            'year': bool(course.year),
+            'term': bool(course.term)
+        }
+        
+        # Required fields are weighted more heavily
+        required_score = sum(required_fields.values()) / len(required_fields)
+        optional_score = sum(optional_fields.values()) / len(optional_fields)
+        
+        return round(required_score * 0.8 + optional_score * 0.2, 2)
+    
+    def _score_consistency(self, course: Course) -> float:
+        """
+        Score data consistency.
+        
+        Args:
+            course: Course to evaluate
+            
+        Returns:
+            Confidence score 0-1
+        """
+        score = 1.0
+        
+        # Check for inconsistencies
+        if course.credits > 0 and course.grade in {'W', 'I'}:
+            score -= 0.2
+            
+        if course.is_intro_course and course.credit_category == "Major":
+            score -= 0.1
+            
+        if course.grade in {'F', 'W'} and not course.needs_review:
+            score -= 0.2
+            
+        return max(0, score)
+    
+    def evaluate_transcript(
+        self,
+        evaluation: TranscriptEvaluation
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Evaluate confidence for an entire transcript.
+        
+        Args:
+            evaluation: TranscriptEvaluation to score
+            
+        Returns:
+            Dictionary of course scores and overall confidence
+        """
+        results = {
+            'courses': {},
+            'overall': {},
+            'metadata': {
+                'timestamp': datetime.now().isoformat(),
+                'total_courses': len(evaluation.courses),
+                'credit_system': evaluation.institution.credit_system
+            }
+        }
+        
+        # Score each course
+        total_score = 0
+        needs_review = 0
+        
+        for course in evaluation.courses:
+            scores = self.score_course(course, evaluation.institution)
+            results['courses'][course.course_code] = scores
+            total_score += scores['total']
+            
+            if scores['total'] < self.review_threshold:
+                needs_review += 1
+                course.needs_review = True
+        
+        # Calculate overall metrics
+        if evaluation.courses:
+            avg_score = total_score / len(evaluation.courses)
+            results['overall'] = {
+                'average_confidence': round(avg_score, 2),
+                'courses_needing_review': needs_review,
+                'review_percentage': round(
+                    (needs_review / len(evaluation.courses)) * 100,
+                    1
+                )
+            }
+        
+        # Log evaluation results
+        logger.info(
+            "Completed transcript confidence evaluation",
+            extra={
+                'overall_score': results['overall'].get('average_confidence'),
+                'needs_review': needs_review
+            }
+        )
+        
+        return results
+
+# Global scorer instance
+scorer = ConfidenceScorer() 
