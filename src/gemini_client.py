@@ -24,11 +24,13 @@ from typing import Optional, Tuple, Any, Dict
 
 from google import genai
 from google.genai import types
-from google.api_core import exceptions, retry
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from google.api_core import exceptions#, retry
 
 from .models import Student  # Pydantic model for data validation
 import streamlit as st
+
+from .config import config
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -158,7 +160,7 @@ class GeminiClient:
     @retry(
         stop=stop_after_attempt(config.max_retries),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry.retry_if_exception_type(
+        retry=retry_if_exception_type(
             (exceptions.ServiceUnavailable, exceptions.DeadlineExceeded)
         ),
         reraise=True
@@ -190,7 +192,7 @@ class GeminiClient:
     @retry(
         stop=stop_after_attempt(config.max_retries),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry.retry_if_exception_type(
+        retry=retry_if_exception_type(
             (exceptions.ServiceUnavailable, exceptions.DeadlineExceeded)
         ),
         reraise=True
@@ -209,7 +211,7 @@ class GeminiClient:
             try:
                 self._client = genai.Client(
                     api_key=self._api_key,
-                    timeout=config.api_timeout
+                    # timeout=config.api_timeout
                 )
                 logger.info("Successfully initialized Gemini client")
             except Exception as e:
@@ -236,7 +238,7 @@ class GeminiClient:
     @retry(
         stop=stop_after_attempt(config.max_retries),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry.retry_if_exception_type(
+        retry=retry_if_exception_type(
             (exceptions.ServiceUnavailable, exceptions.DeadlineExceeded)
         ),
         reraise=True
@@ -284,7 +286,7 @@ class GeminiClient:
     @retry(
         stop=stop_after_attempt(config.max_retries),
         wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry.retry_if_exception_type(
+        retry=retry_if_exception_type(
             (exceptions.ServiceUnavailable, exceptions.DeadlineExceeded)
         ),
         reraise=True

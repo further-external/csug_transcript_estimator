@@ -103,7 +103,7 @@ class TransferCreditEvaluator:
         grade_clean = grade.strip().upper()
 
         # Pass/Satisfactory grades need manual verification
-        if grade_clean in {"P", "S", "CR"}:
+        if grade_clean in {"CR"}:
             return True
 
         # Convert letter grades to numeric values and compare

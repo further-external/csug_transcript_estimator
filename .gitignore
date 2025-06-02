@@ -5,8 +5,8 @@ src/__pycache__/
 .env
 .venv/*
 
-
-
+# Logs
+logs/
 
 # Byte‑code cache
 __pycache__/
