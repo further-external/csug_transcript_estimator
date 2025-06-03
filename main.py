@@ -130,7 +130,16 @@ def render_review_tab(client: GeminiClient):
     """Render the Review & Evaluate tab content."""
     st.header("Evaluate Transfer Credits")
 
-    if not st.session_state.get("combined_data"):
+    if st.session_state.get("combined_data"):
+    # Credit system selection
+        credit_system = st.radio(
+            "Select Credit System",
+            options=["semester", "quarter"],
+            format_func=str.title,
+            help="Choose the credit system used by the institution"
+        )
+        is_quarter = True if credit_system == "quarter" else False
+    else: 
         st.warning("Please upload and process transcripts in the Upload tab first")
         return
 
@@ -140,7 +149,8 @@ def render_review_tab(client: GeminiClient):
             try:
                 evaluator = create_evaluator(client)
                 evaluation_results = evaluator.evaluate_transcript(
-                    st.session_state.combined_data
+                    st.session_state.combined_data,
+                    is_quarter
                 )
 
                 # Store evaluation results and set flag
@@ -155,7 +165,7 @@ def render_review_tab(client: GeminiClient):
         st.session_state.evaluation_complete
         and hasattr(st.session_state, "evaluation_results")
     ):
-        display_evaluation_results(st.session_state.evaluation_results)
+        display_evaluation_results(st.session_state.evaluation_results, is_quarter)
 
 
 # ──────────────────────────────────────────────────────────────────────────

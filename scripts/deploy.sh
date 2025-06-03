@@ -11,16 +11,17 @@ gcloud auth login
 gcloud auth application-default set-quota-project $PROJECT
 gcloud config set project $PROJECT
 
-
-SERVICE_NAME="transcript-app-v2"
-IMAGE="gcr.io/$PROJECT_ID/$SERVICE_NAME"
+VERSION_TAG="20250528"
+SERVICE_NAME="transcript-app-v3"
+# IMAGE="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 
 # Build the container image and submit it to Google Container Registry
 echo "Building the container image..."
 # Build the container image using docker buildx
-IMAGE="us-central1-docker.pkg.dev/$PROJECT/jp/$SERVICE_NAME:latest"
+IMAGE="us-central1-docker.pkg.dev/$PROJECT/jp/$SERVICE_NAME:$VERSION_TAG"
 echo "Building the container image..."
-docker buildx build --platform linux/amd64,linux/arm64 -t $IMAGE --push .
+# docker buildx build --platform linux/amd64,linux/arm64 -t $IMAGE --push .
+gcloud builds submit --tag $IMAGE . # Replaces the above line to deploy without local Docker installation
 
 
 # Deploy the container to Cloud Run with CPU, memory, and port configuration
