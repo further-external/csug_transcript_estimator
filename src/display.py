@@ -136,10 +136,10 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
     
     total_courses = summary.get('total_courses', 0)
     total_accepted = summary.get('transferable_courses', 0)
-    total_credits = summary.get('total_credits', 0)
-    total_credits_adj = summary.get('total_credits_adj', 0)
-    total_accepted_credits = round(summary.get('total_transferable_credits', 0),0) # Add standard rounding to accepted credit total
-    total_accepted_credits_adj = round(summary.get('total_transferable_credits_adj', 0),0) # Add standard rounding to accepted credit total
+    total_credits = int(summary.get('total_credits', 0))  # Truncate to effectively round down
+    total_credits_adj = int(summary.get('total_credits_adj', 0))  # Truncate to effectively round down
+    total_accepted_credits = int(summary.get('total_transferable_credits', 0)) # Truncate to effectively round down
+    total_accepted_credits_adj = int(summary.get('total_transferable_credits_adj', 0)) # Truncate to effectively round down
     total_rejected_credits = summary.get('total_rejected_credits', 0)
 
     if is_quarter:
@@ -148,12 +148,12 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
         col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric("Total Credits Attempted", f"{total_credits:.1f}")
+        st.metric("Total Credits Attempted", f"{total_credits}")
     if is_quarter:
         with col2a:
-            st.metric("Total Credits (adjusted)", f"{total_credits_adj:.1f}")
+            st.metric("Total Credits (adjusted) 🛈", f"{total_credits_adj}")
     with col2:
-        st.metric("Total Credits Accepted", f"{round(total_accepted_credits_adj,0):.0f}" if is_quarter else f"{round(total_accepted_credits,0):.0f}")
+        st.metric("Total Credits Accepted", f"{total_accepted_credits_adj}" if is_quarter else f"{total_accepted_credits}")
     with col3:
         if is_quarter:
             acceptance_rate = (round(total_accepted_credits_adj,0) / total_credits_adj * 100) if total_credits_adj > 0 else 0.0
@@ -163,6 +163,11 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
 
     # Display evaluated courses
     if evaluation_results.get('evaluated_courses'):
+
+        total_transferable_credits_cond = summary.get('total_transferable_credits_adj', 0) if is_quarter else summary.get('total_transferable_credits', 0)
+        if total_transferable_credits_cond >= 90:
+            st.warning("Accepted credits have reached the maximum transferable limit of 90.")
+
         st.subheader("Evaluated Courses")
         
         # Prepare courses data with policy verification details
@@ -176,35 +181,38 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
         
         # Calculate transfer status
         df['status'] = df.apply(
-            lambda x: '✅ Accepted' if x['transferable'] 
+            lambda x: '✅ Accepted' if x['transferable']
+            else f'⚠️ Manual Review' if x['requires_manual_review'] and not any(reason in x['rejection_reasons'] for reason in ["Grade below requirement", "Introductory course"])
             else f'❌ Rejected ({len(x["rejection_reasons"])} issues)',
             axis=1
         )
+
+        df['rejection_reasons'] = df['rejection_reasons'].apply(lambda reasons: ', '.join(reasons))
         
         full_column_config = {
             'course_code': st.column_config.TextColumn(
                 'Course Code',
-                width='medium'
+                # width='small'
             ),
             'course_name': st.column_config.TextColumn(
                 'Course Name',
-                width='large'
+                # width='large'
             ),
             'credits': st.column_config.NumberColumn(
                 'Credits',
                 format="%.2f"
             ),
             'credits_adj': st.column_config.NumberColumn(
-                'Credits (adjusted)',
+                'Credits (adj) 🛈',
                 format="%.2f"
             ),
             'grade': st.column_config.TextColumn(
                 'Grade',
-                width='small'
+                # width='small'
             ),
             'status': st.column_config.TextColumn(
                 'Transfer Status',
-                width='medium'
+                # width='medium'
             ),
             'rejection_reasons': st.column_config.TextColumn(
                 'Issues',
@@ -228,7 +236,7 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
             visible_columns = base_column_order[:insert_index] + ['credits_adj'] + base_column_order[insert_index:]
         else:
             visible_columns = base_column_order
-            
+
         # Filter the column_config accordingly
         visible_column_config = {
             col: full_column_config[col]
@@ -244,8 +252,6 @@ def display_evaluation_results(evaluation_results: Dict, is_quarter: bool = Fals
         if is_quarter:
             st.caption("🛈 *Credits shown are adjusted to semester equivalents (x2/3) due to Quarter system selection.*")
 
-        if summary.get('total_transferable_credits', 0) >= 90:
-            st.warning("Accepted credits have reached the maximum transferable limit of 90.")
         
 
 def validate_course(course):
@@ -279,7 +285,7 @@ def display_combined_results(data: Dict):
         st.header("Student Information")
         if data.get("student_info"):
             student_df = pd.DataFrame([data["student_info"]])
-            st.dataframe(student_df)
+            st.dataframe(student_df,hide_index=True)
         else:
             st.warning("No student information found")
 
@@ -287,7 +293,7 @@ def display_combined_results(data: Dict):
         st.header("Institutions")
         if data.get("institutions"):
             institutions_df = pd.DataFrame(data["institutions"])
-            st.dataframe(institutions_df)
+            st.dataframe(institutions_df,hide_index=True)
         else:
             st.warning("No institution information found")
 

@@ -47,7 +47,7 @@ class TransferCreditEvaluator:
         Transfer Grade Requirements:
         IF grade is C-/70% or higher (Undergraduate) or B- or higher (Graduate) → proceed.
         IF grade is lower → reject credit.
-        IF grade is S, P or  CR from a traditional institution and the transcript key states that they are equivalent to C/70% or higher, it can be considered for transfer
+        IF grade is non-standard, flag for review and do not give credit 
 
         Args:
             grade: The raw grade value exactly as it appears on the transcript.
@@ -65,11 +65,6 @@ class TransferCreditEvaluator:
             return False
 
         grade_clean = grade.strip().upper()
-
-        # 2. Straight‑through accept for institutional pass indicators that must
-        #    still be confirmed by a human reader against the transcript key.
-        if grade_clean in {"CR"}:  # Exclude P and S per CSUG request
-            return True
 
         # Helper to obtain the numeric cut‑off for the relevant program level.
         min_letter = self.config.min_grade_undergraduate
@@ -91,15 +86,28 @@ class TransferCreditEvaluator:
             'is_transfer': course.get('is_transfer', False),
             'source_institution': course.get('source_institution'),
             'transferable': False,
-            'rejection_reasons': []
+            'rejection_reasons': [],
+            'requires_manual_review': False
         }
         
+        # Check for missing key fields
+        missing_fields = [field for field in ['course_code', 'course_name', 'credits', 'grade', 'year']
+            if not course.get(field)]
+
+        if missing_fields:
+            evaluation['requires_manual_review'] = True
+            evaluation['rejection_reasons'].append('Missing data')
+
         # Check grade and status requirements
-        if not self._check_grade_requirement(
+        grade_clean = evaluation['grade'].strip().upper()
+        if grade_clean and grade_clean not in self._grade_values:
+            evaluation['requires_manual_review'] = True
+            evaluation['rejection_reasons'].append('Non-standard grade')
+        elif grade_clean and not self._check_grade_requirement(
             course.get('grade'), 
             course.get('status')
         ):
-            evaluation['rejection_reasons'].append('Grade or status below requirement')
+            evaluation['rejection_reasons'].append('Grade below requirement')
             
         # Introductory course check
         course_code = course.get('course_code', '')
@@ -107,7 +115,7 @@ class TransferCreditEvaluator:
         if match:
             course_number = int(match.group(0))
             if course_number < 100:
-                evaluation['rejection_reasons'].append('Introductory course (course number below 100)')
+                evaluation['rejection_reasons'].append('Introductory course')
 
         # Set transferable status
         evaluation['transferable'] = len(evaluation['rejection_reasons']) == 0

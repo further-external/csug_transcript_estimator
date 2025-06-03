@@ -11,8 +11,8 @@ gcloud auth login
 gcloud auth application-default set-quota-project $PROJECT
 gcloud config set project $PROJECT
 
-VERSION_TAG="20250528"
-SERVICE_NAME="transcript-app-v3"
+VERSION_TAG="20250603"
+SERVICE_NAME="transcript-app-v4"
 # IMAGE="gcr.io/$PROJECT_ID/$SERVICE_NAME"
 
 # Build the container image and submit it to Google Container Registry
