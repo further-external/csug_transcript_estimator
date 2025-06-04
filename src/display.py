@@ -272,7 +272,7 @@ def validate_course(course):
         notes.append("Unusual credits")
     
     valid_grades = ["A", "A-", "A+", "B+", "B", "B-", "C+", "C", "C-", 
-                   "D+", "D", "D-", "F", "CR", "NP", "W", "I"]
+                   "D+", "D", "D-", "F"]
     if course.get('grade') and course['grade'] not in valid_grades:
         notes.append("Non-standard grade")
         
