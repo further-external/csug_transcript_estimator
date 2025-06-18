@@ -21,7 +21,8 @@ logger.setLevel(logging.INFO)
 class GeminiClient:
     """Lightweight Gemini 2.x client."""
 
-    DEFAULT_MODEL = "models/gemini-2.5-pro-preview-05-06"
+    # DEFAULT_MODEL = "models/gemini-2.5-pro-preview-05-06" # Being deprecated
+    DEFAULT_MODEL = "models/gemini-2.5-pro-preview-06-05"
 
     def __init__(
         self,
