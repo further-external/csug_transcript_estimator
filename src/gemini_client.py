@@ -22,7 +22,8 @@ class GeminiClient:
     """Lightweight Gemini 2.x client."""
 
     # DEFAULT_MODEL = "models/gemini-2.5-pro-preview-05-06" # Being deprecated
-    DEFAULT_MODEL = "models/gemini-2.5-pro-preview-06-05"
+    # DEFAULT_MODEL = "models/gemini-2.5-pro-preview-06-05" # Being deprecated 7/15/25
+    DEFAULT_MODEL = "models/gemini-2.5-pro"
 
     def __init__(
         self,
