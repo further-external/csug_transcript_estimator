@@ -6,7 +6,7 @@ src/__pycache__/
 .venv/*
 .vscode/
 
-
+./streamlit/
 
 # Byte‑code cache
 __pycache__/
